@@ -42,7 +42,10 @@ macro_rules! fenum {
     }
     impl From<u32> for $ty {
         fn from(x: u32) -> $ty {
-           unsafe { std::mem::transmute(u8::try_from(x).unwrap() & 0b11111) }
+	   match x {
+	      $($val => $enum),*
+           //unsafe { std::mem::transmute(u8::try_from(x).unwrap() & 0b11111) }
+	   }
         }
     }
   }
