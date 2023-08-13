@@ -1,8 +1,9 @@
 #![allow(unused)]
 use bitmatch::bitmatch;
 
+
 macro_rules! fenum {
-  ( $ty:ident = { $( $enum:ident ),* } 
+  ($ty:ident = { $( $enum:ident ),* } 
   ) => {
     #[repr(u8)]
     #[derive(Debug)]
@@ -15,13 +16,29 @@ macro_rules! fenum {
         }
     }
   };
+
+  (xxx $ty:ident = { $( $enum:ident ),* } ) => {
+    fenum!{ @output $ty = {
+            fenum!(@enumerate 0; [] $( $enum )*) } }
+  };
+
+  ( $ty:ident = { $( $enum:ident : $val:expr ),* } ) => {
+    fenum!{ @output $ty = { $( $enum:$val ),* } }
+  };
+
+  ( @enumerate $i:expr ; [ $( $enum:ident : $val:expr )* ]) => {
+    $( $enum:$val ),*
+  };
   
-  ( $ty:ident = { $( $enum:ident : $val:expr ),* } 
-  ) => {
+  ( @enumerate $i:expr ; [ $( $enum:ident : $val:expr )* ] $e:ident $( $emore:ident )*) => { 
+    fenum!(@enumerate $i+1; [$($enum:$val)* $e:$i] $($emore)*)
+  };
+
+  ( @output $ty:ident = { $( $enum:ident : $val:expr ),* } ) => {
     #[repr(u8)]
     #[derive(Debug)]
     enum $ty {
-      $( $enum=$val, )*
+      $( $enum = $val ),*
     }
     impl From<u32> for $ty {
         fn from(x: u32) -> $ty {
