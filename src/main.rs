@@ -31,11 +31,70 @@ macro_rules! fenum {
   }
 }
 
-fenum!{Regno = {
-	     X0,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,
-	     X16,X17,X18,X19,X20,X21,X22,X23,X24,X25,X26,X27,X28,X29,X30,X31 }
-	     }
 
+macro_rules! fimm {
+    ($val:expr; [$($m:literal:$l:literal)*])    => { fimm!(@ false,false, $val; [$($m:$l)*]) };
+    ($val:expr; sx[$($m:literal:$l:literal)*])  => { fimm!(@ false,true,  $val; [$($m:$l)*]) };    
+    ($val:expr; dbg [$($m:literal:$l:literal)*])    => { fimm!(@ true,false, $val; [$($m:$l)*]) };
+    ($val:expr; dbg sx[$($m:literal:$l:literal)*])  => { fimm!(@ true,true,  $val; [$($m:$l)*]) };    
+
+    // reverse input before starting @fe state
+    (@ $dbg:literal, $sx:literal, $val:expr; [] $($m:literal:$l:literal)*) => {
+        fimm!(@fe $dbg,$sx,$val,0 ; $($m:$l)* ) // base case
+    };
+    (@ $dbg:literal,$sx:literal,$val:expr; [$m:literal:$l:literal $($m0:literal:$l0:literal)*]
+     $($mr:literal:$lr:literal)*) => { 
+        fimm!(@ $dbg,$sx,$val; [$($m0:$l0)*] $m:$l $($mr:$lr)*)  // recursion
+    };
+
+    (@fe $dbg:literal,$sx:literal,$val:expr,$pos:expr ; $m:literal:$l:literal) => {
+        fimm!(@field $dbg,$sx,$val,$pos; $m:$l)
+    };
+    (@fe $dbg:literal,$sx:literal,$val:expr,$pos:expr ; $m:literal:$l:literal $($rest_m:literal:$rest_l:literal)*) => {
+        fimm!(@field $dbg,false,$val,$pos; $m:$l) |
+        fimm!(@fe $dbg,$sx,$val,$pos+($m-$l)+1 ; $($rest_m:$rest_l)*)
+    };
+
+    // @field signext, val, pos; p:sz
+    (@field $dbg:literal,$sx:literal,$val:expr,$pos:expr; $m:literal:$l:literal) => {
+      {
+        let sz= $m-$l+1;
+        let p = $l;
+	let mask=((1<<sz)-1);
+	let v = (($val&(mask<<$pos))>>$pos)<<p;
+	let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
+	let o =	if $sx { v }
+		else { v };
+	
+        if $dbg {
+          println!("pos={:2} ({:2}:{:2}) mask={:032b} place={:032b} {:032b}",$pos,p,sz,
+ 	           (1<<sz)-1, ((1<<sz)-1)<<p, o)
+        };
+	o
+      }
+    }
+}
+
+macro_rules! imm {
+    ($val:expr; $($k:ident)* [$($m:literal:$l:literal)*])    => {
+       {
+         let v=fimm!( $val ; $($k)* [$($m:$l)*]);
+	 if false {
+            println!("imm --> {:032b} ==> {} {:032b}",$val,stringify!($($m:$l)|*),v);
+	    println!("{} == {}",$val,v);
+	 }
+	 v
+       }
+    }
+}
+
+#[test]
+fn f0() {
+   assert_eq!(fimm!(0x80000537; [31:12]),0x80000);
+}
+
+fenum!{Regno = { X0,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,
+	         X16,X17,X18,X19,X20,X21,X22,X23,X24,X25,X26,X27,X28,X29,X30,X31 } }
 
 fenum!{ Branch = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
 
@@ -61,16 +120,14 @@ fenum!{ MulOp = {
 } }
 
 
-fenum!{
-  CsrOp  = {
+fenum!{ CsrOp  = {
    Ecall:0,Csrrw:1,Csrrs:2,
    Csrrwi:3,Csrrsi:4,Csrrci:5,
    Ebreak:6
   }
 }
 
-fenum!{
-   AmoOp = {
+fenum!{ AmoOp = {
      Amoaddw:0,Amoswapw:1,Lrw:2,Scw:3,
      Amoxorw:4,Amoorw:8,Amoandw:12,Amominw:16,
      Amomaxw:20,Amominuw:24,Amonmaxuw:28
@@ -99,38 +156,32 @@ enum RiscvOP {
   Amo(AmoOp,Regno,Regno,Regno),
   None
 }
-
+  
 #[bitmatch]
 fn decode(inst: u32) -> RiscvOP {
     use RiscvOP::*;
     #[bitmatch]
     match inst {
-    // J uuuuuuu uuuuu uuuuu uuu ddddd ooooo 11    
-	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(u),
-	"uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(u),
-	"uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(u),
-	"uuuuuuu uuuuu uuuuu uuu ddddd 11001 11" => Jalr(d.into(),u),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(          imm!(u; [31:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(        imm!(u; [31:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(          imm!(u; [20:20 10:1 11:11 19:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 11001 11" => Jalr(d.into(),imm!(u;[11:0])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei,
-    // B iiiiiii bbbbb aaaaa fff iiiii ooooo 11
-	"iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(f.into(),a.into(),b.into(),i),
-    // I iiiiiii iiiii aaaaa fff ddddd ooooo 11
-        "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(f.into(),d.into(),a.into(),i),
-        "iiiiiii iiiii aaaaa fff ddddd 01000 11" => Store(f.into(),d.into(),a.into(),i),
-        "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(f.into(),d.into(),a.into(),i),
-        "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(f.into(),d.into(),a.into(),i),	
-    // R FFFFFFF bbbbb aaaaa fff ddddd ooooo 11
+	"iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
+        "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(f.into(),d.into(),a.into(),  imm!(i;[11:0])),
+        "iiiiiii iiiii aaaaa fff ddddd 01000 11" => Store(f.into(),d.into(),a.into(), imm!(i;[11:0])),
+        "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(f.into(),d.into(),a.into(),  imm!(i;[11:0])),
+        "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(f.into(),d.into(),a.into(),   imm!(i;[11:0])),
         "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(f.into(),d.into(),a.into(),b.into()),
         "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(f.into(),d.into(),a.into(),b.into()),	
-    // A FFFFFQL bbbbb aaaaa fff ddddd ooooo 11
-        "FFFFFQL bbbbb aaaaa 010 ddddd 01011 11" => Amo(F.into(),d.into(),a.into(),b.into()),
-
+        "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(f.into(),d.into(),a.into(),b.into()),
 	_ => RiscvOP::None
     }
 }
 
 #[test]
 fn t0 () {
-    assert_eq!("Lui(524288)",format!("{:?}",decode(0x80000537)));
+    assert_eq!("Lui(2147483648)",format!("{:?}",decode(0x80000537)));
     assert_eq!("Branch(Bne, X15, X0, 4089)",format!("{:?}",decode( 0xfe079ce3)));
     assert_eq!("Load(Lw, X13, X14, 4088)",format!("{:?}",decode(0xff872683)));
     assert_eq!("Store(Sw, X0, X14, 15)",format!("{:?}",decode(0x00f72023)));
@@ -149,5 +200,5 @@ fn main() {
    println!("{:?}", decode( 0x40d90933));
    println!("{:?}", decode( 0x13641073));
    println!("{:?}", decode( 0x03245433));      
-   
+   println!("{:?}", decode( 0x12450513));
 }
