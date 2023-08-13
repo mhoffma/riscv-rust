@@ -58,9 +58,10 @@ macro_rules! fenum {
 macro_rules! fimm {
     ($val:expr; [$($m:literal:$l:literal)*])    => { fimm!(@ false,false, $val; [$($m:$l)*]) };
     ($val:expr; nzuimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
-    ($val:expr; nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };    
+    ($val:expr; nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
+    ($val:expr; upper nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*])<<16 };
     ($val:expr; uimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };    
-    ($val:expr; sx[$($m:literal:$l:literal)*])  => { fimm!(@ false,true,  $val; [$($m:$l)*]) };    
+    ($val:expr; sx[$($m:literal:$l:literal)*])  => { fimm!(@ false,true,  $val; [$($m:$l)*]) };
     ($val:expr; dbg [$($m:literal:$l:literal)*])    => { fimm!(@ true,false, $val; [$($m:$l)*]) };
     ($val:expr; dbg sx[$($m:literal:$l:literal)*])  => { fimm!(@ true,true,  $val; [$($m:$l)*]) };
 
@@ -90,7 +91,7 @@ macro_rules! fimm {
 	let mask=((1<<sz)-1);
 	let v = (($val&(mask<<$pos))>>$pos)<<p;
 	let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
-	let o =	if $sx { v }
+	let o =	if $sx { v | _m}
 		else { v };
 	
         if $dbg {
@@ -172,6 +173,27 @@ enum RiscvOpC {
      Addi(Regno,u32),
      Nop,
      Jal(u32),
+     Addiw(Regno,u32),
+     Li(Regno,u32),
+     Addi16sp(u32),
+     SrlI(Regno8,u32),
+     SrlaI(Regno8,u32),
+     AndI(Regno8,u32),
+     Sub(Regno8,Regno8),
+     Xor(Regno8,Regno8),
+     Ior(Regno8,Regno8),
+     And(Regno8,Regno8),
+     J(u32),
+     Beqz(Regno8,u32),
+     Bnez(Regno8,u32),
+     SllI(Regno,u32),
+     Jr(Regno),
+     Ebreak,
+     Jalr(Regno),
+     Add(Regno,Regno),
+     Mv(Regno,Regno),
+     Ldwsp(Regno,u32),
+     Swsp(u32,Regno),
      None
 }
 
@@ -189,7 +211,7 @@ enum RiscvOpImac {
   Alu(AluOp,Regno,Regno,Regno),
   Csr(CsrOp,Regno,Regno,u32),
   Mul(MulOp,Regno,Regno,Regno),
-  Amo(AmoOp,Regno,Regno,Regno),
+  Amo(AmoOp,Regno,Regno,Regno,bool,bool),
   C(RiscvOpC),
   None
 }
@@ -212,13 +234,37 @@ fn decode(inst: u32) -> RiscvOpImac {
         "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(f.into(),d.into(),a.into(),   imm!(i;[11:0])),
         "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(f.into(),d.into(),a.into(),b.into()),
         "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(f.into(),d.into(),a.into(),b.into()),	
-        "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(f.into(),d.into(),a.into(),b.into()),
+        "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(f.into(),d.into(),a.into(),b.into(),q==1,l==1),
 
-	"000 iiiiiiii ddd 00"    => C(C::Add4spn(d.into(),imm!(i;nzuimm[5:4 9:6 2:2 3:3]))),
-	"010 iii aaa ii ddd 00"  => C(C::Ldw(d.into(),imm!(i;uimm[5:3 2:2 6:6]))),
-	"000 0 00000  00 000 01" => C(C::Nop),
-	"000 i ddddd  ii iii 01" => C(C::Addi(d.into(),imm!(i;nzimm[5:5 4:0]))),
-	"001 iiiiiiiiiii 01"     => C(C::Jal(imm!(i;[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
+	"000 i iiiii ii ddd 00"  => C(C::Add4spn(d.into(),imm!(i;nzuimm[5:4 9:6 2:2 3:3]))),
+	"010 i iiaaa ii ddd 00"  => C(C::Ldw(d.into(),imm!(i;uimm[5:3 2:2 6:6]))),
+	"000 0 00000 00 000 01"  => C(C::Nop),
+	"000 i ddddd ii iii 01"  => C(C::Addi(d.into(),imm!(i;nzimm[5:5 4:0]))),
+	"001 i iiiii ii iii 01"  => C(C::Jal(imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
+	"001 i ddddd ii iii 01"  => C(C::Addiw(d.into(),imm!(i; sx[5:5 4:0]))),
+	"010 i ddddd ii iii 01"  => C(C::Li(d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5]))),
+	"011 i 00010 ii iii 01"  => C(C::Addi16sp(imm!(i;nzimm[4:4 6:6 8:7 5:5]))),
+	"011 i ddddd ii iii 01"  => C(C::Li(d.into(),imm!(i; upper nzimm[4:4 6:6 8:7 5:5]))),
+	"100 i 00ddd ii iii 01"  => C(C::SrlI(d.into(),imm!(i;nzimm[16:12]))),
+	"100 i 01ddd ii iii 01"  => C(C::SrlaI(d.into(),imm!(i;nzimm[16:12]))),
+	"100 i 10ddd ii iii 01"  => C(C::AndI(d.into(),imm!(i;nzimm[16:12]))),
+	"100 0 11ddd 00 bbb 01"  => C(C::Sub(d.into(),b.into())),
+	"100 0 11ddd 01 bbb 01"  => C(C::Xor(d.into(),b.into())),
+	"100 0 11ddd 10 bbb 01"  => C(C::Ior(d.into(),b.into())),
+	"100 0 11ddd 11 bbb 01"  => C(C::And(d.into(),b.into())),
+        "101 i iiiii ii iii 01"  => C(C::J(imm!(i; sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
+	"110 i iiaaa ii iii 01"  => C(C::Beqz(a.into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5]))),
+	"110 i iiaaa ii iii 01"  => C(C::Bnez(a.into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5]))),
+	"000 i ddddd ii iii 10"  => C(C::SllI(d.into(),imm!(i; nzuimm[5:5 4:0]))),
+	"100 0 aaaaa 00 000 10"  => C(C::Jr(a.into())),
+	"100 1 00000 00 000 10"  => C(C::Ebreak),
+	"100 1 aaaaa 00 000 10"  => C(C::Jalr(a.into())),
+	"100 1 ddddd aa aaa 10"  => C(C::Add(d.into(),a.into())),
+	"100 0 ddddd aa aaa 10"  => C(C::Mv(d.into(),a.into())),
+	"010 i ddddd ii iii 10"  => C(C::Ldwsp(d.into(),imm!(i; uimm[5:5 4:2 7:6]))),
+	"110 i iiiii aa aaa 10"  => C(C::Swsp(imm!(i; uimm[5:2 7:6]),a.into())),
+
+
          _ => RiscvOpImac::None
     }
 }
@@ -229,16 +275,17 @@ fn t0 () {
     assert_eq!("Mul(Divu, X8, X8, X18)",format!("{:?}",decode(0x03245433)));
 }
 
-macro_rules! check {
+fn strip(s : String) -> String { s.chars().filter(|c| !c.is_whitespace()).collect() }
+macro_rules! check { 
   ( $($opc:literal => $note:literal );* ) => {
      $(
         {
 	 let res   = decode($opc);
-	 let sres  = format!("{:?}",res);
+	 let sres : String = strip(format!("{:?}",res));
 	 let mut n = $note.split("//");
 	 match n.next() {
 	   Some(t) =>
-              println!("{:8} {:30} => {}",sres==t.trim(),sres, t),
+              println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, t),
 	   None => {}
 	 }
 	}
@@ -258,8 +305,11 @@ fn main() {
      0x13641073 => "Csr(Csrrw, X0, X8, 155)" ;
      0x03245433 => "Mul(Divu, X8, X8, X18)";
      0x12450513 => "AluI(AddI, X10, X10, 292)";
+     0x12048513 => "AluI(AddI,X10,X9,288) //80000046:	12048513          	addi	a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
      0x0001     => "C(Nop)";
      0x004C     => "C(Add4spn(X3, 4))";
-     0x3fc9     => "C(Jal(4050)) // 80000060:	3fc9                	jal	80000032 <lprint>"
+     0x3fc9     => "C(Jal(4050))     // 80000060:	3fc9                	jal	80000032 <lprint>";
+     0x3779     => "C(Jal(...))      // 80000082:	3779                	jal	80000010 <asm_demo_func>";
+     0x1141     => "C(Addi(X2,-16))  //	80000010:	1141                	addi	sp,sp,-16"
    }
 }
