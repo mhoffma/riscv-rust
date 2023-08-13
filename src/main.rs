@@ -230,7 +230,20 @@ fn t0 () {
 }
 
 macro_rules! check {
-  ( $($opc:literal => $note:literal );* ) => { $( println!("{:?} => {}",decode($opc), $note) );* }
+  ( $($opc:literal => $note:literal );* ) => {
+     $(
+        {
+	 let res   = decode($opc);
+	 let sres  = format!("{:?}",res);
+	 let mut n = $note.split("//");
+	 match n.next() {
+	   Some(t) =>
+              println!("{:8} {:30} => {}",sres==t.trim(),sres, t),
+	   None => {}
+	 }
+	}
+      );*
+  }
 }
 
 
