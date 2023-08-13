@@ -38,13 +38,16 @@ macro_rules! fenum {
     #[repr(u8)]
     #[derive(Debug)]
     enum $ty {
-      $( $enum = $val ),*
+      $( $enum = $val, )*
+      Crap
     }
     impl From<u32> for $ty {
         fn from(x: u32) -> $ty {
-	   match x {
-	      $($val => $enum),*
            //unsafe { std::mem::transmute(u8::try_from(x).unwrap() & 0b11111) }
+	   use $ty::*;
+	   match x {
+	      $($val => $enum,)*
+	      _ => Crap
 	   }
         }
     }
@@ -54,9 +57,13 @@ macro_rules! fenum {
 
 macro_rules! fimm {
     ($val:expr; [$($m:literal:$l:literal)*])    => { fimm!(@ false,false, $val; [$($m:$l)*]) };
+    ($val:expr; nzuimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
+    ($val:expr; nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };    
+    ($val:expr; uimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };    
     ($val:expr; sx[$($m:literal:$l:literal)*])  => { fimm!(@ false,true,  $val; [$($m:$l)*]) };    
     ($val:expr; dbg [$($m:literal:$l:literal)*])    => { fimm!(@ true,false, $val; [$($m:$l)*]) };
-    ($val:expr; dbg sx[$($m:literal:$l:literal)*])  => { fimm!(@ true,true,  $val; [$($m:$l)*]) };    
+    ($val:expr; dbg sx[$($m:literal:$l:literal)*])  => { fimm!(@ true,true,  $val; [$($m:$l)*]) };
+
 
     // reverse input before starting @fe state
     (@ $dbg:literal, $sx:literal, $val:expr; [] $($m:literal:$l:literal)*) => {
@@ -154,13 +161,22 @@ fenum!{ AmoOp = {
    }
 }
 
-enum RegImm {
-    R(Regno),
-    I(u32)
+// todo these need to really point to Regno X8=Regno::X8
+fenum!{ Regno8 ={X8,X9,X10,X11,X12,X13,X14,X15} } 
+
+
+#[derive(Debug)]
+enum RiscvOpC {
+     Add4spn(Regno,u32),
+     Ldw(Regno8,u32),
+     Addi(Regno,u32),
+     Nop,
+     Jal(u32),
+     None
 }
 
 #[derive(Debug)]
-enum RiscvOP {
+enum RiscvOpImac {
   Lui(u32),
   Auipc(u32),
   Jal(u32),
@@ -174,12 +190,14 @@ enum RiscvOP {
   Csr(CsrOp,Regno,Regno,u32),
   Mul(MulOp,Regno,Regno,Regno),
   Amo(AmoOp,Regno,Regno,Regno),
+  C(RiscvOpC),
   None
 }
   
 #[bitmatch]
-fn decode(inst: u32) -> RiscvOP {
-    use RiscvOP::*;
+fn decode(inst: u32) -> RiscvOpImac {
+    use RiscvOpImac::*;
+    type C = RiscvOpC;
     #[bitmatch]
     match inst {
 	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(          imm!(u; [31:12])),
@@ -195,30 +213,40 @@ fn decode(inst: u32) -> RiscvOP {
         "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(f.into(),d.into(),a.into(),b.into()),
         "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(f.into(),d.into(),a.into(),b.into()),	
         "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(f.into(),d.into(),a.into(),b.into()),
-	_ => RiscvOP::None
+
+	"000 iiiiiiii ddd 00"    => C(C::Add4spn(d.into(),imm!(i;nzuimm[5:4 9:6 2:2 3:3]))),
+	"010 iii aaa ii ddd 00"  => C(C::Ldw(d.into(),imm!(i;uimm[5:3 2:2 6:6]))),
+	"000 0 00000  00 000 01" => C(C::Nop),
+	"000 i ddddd  ii iii 01" => C(C::Addi(d.into(),imm!(i;nzimm[5:5 4:0]))),
+	"001 iiiiiiiiiii 01"     => C(C::Jal(imm!(i;[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
+         _ => RiscvOpImac::None
     }
 }
 
+
 #[test]
 fn t0 () {
-    assert_eq!("Lui(2147483648)",format!("{:?}",decode(0x80000537)));
-    assert_eq!("Branch(Bne, X15, X0, 4089)",format!("{:?}",decode( 0xfe079ce3)));
-    assert_eq!("Load(Lw, X13, X14, 4088)",format!("{:?}",decode(0xff872683)));
-    assert_eq!("Store(Sw, X0, X14, 15)",format!("{:?}",decode(0x00f72023)));
-    assert_eq!("AluI(AddI, X2, X2, 16)",format!("{:?}",decode(0x01010113)));
-    assert_eq!("Alu(Sub, X18, X18, X13)",format!("{:?}",decode(0x40d90933)));
-    assert_eq!("Csr(Csrrw, X0, X8, 155)",format!("{:?}",decode(0x13641073)));
     assert_eq!("Mul(Divu, X8, X8, X18)",format!("{:?}",decode(0x03245433)));
 }
 
+macro_rules! check {
+  ( $($opc:literal => $note:literal );* ) => { $( println!("{:?} => {}",decode($opc), $note) );* }
+}
+
+
 fn main() {
-   println!("{:?}", decode( 0x80000537));
-   println!("{:?}", decode( 0xfe079ce3));
-   println!("{:?}", decode( 0xff872683));
-   println!("{:?}", decode( 0x00f72023));
-   println!("{:?}", decode( 0x01010113));
-   println!("{:?}", decode( 0x40d90933));
-   println!("{:?}", decode( 0x13641073));
-   println!("{:?}", decode( 0x03245433));      
-   println!("{:?}", decode( 0x12450513));
+   check! {
+     0x80000537 => "Lui(2147483648)" ;
+     0xfe079ce3 => "Branch(Bne, X15, X0, 8184)" ;
+     0xff872683 => "Load(Lw, X13, X14, 4088)" ;
+     0x00f72023 => "Store(Sw, X0, X14, 15)" ;
+     0x01010113 => "AluI(AddI, X2, X2, 16)" ;
+     0x40d90933 => "Alu(Sub, X18, X18, X13)" ;
+     0x13641073 => "Csr(Csrrw, X0, X8, 155)" ;
+     0x03245433 => "Mul(Divu, X8, X8, X18)";
+     0x12450513 => "AluI(AddI, X10, X10, 292)";
+     0x0001     => "C(Nop)";
+     0x004C     => "C(Add4spn(X3, 4))";
+     0x3fc9     => "C(Jal(4050)) // 80000060:	3fc9                	jal	80000032 <lprint>"
+   }
 }
