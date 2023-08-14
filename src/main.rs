@@ -170,7 +170,7 @@ enum RiscvOpImac {
   Lui(u8,Regno,u32),
   Auipc(u8,Regno,u32),
   Jal(u8,Regno,u32),
-  Jalr(u8,Regno,u32),
+  Jalr(u8,Regno,Regno,u32),
   Fencei(u8),
   Branch(u8,BranchOp,Regno,Regno,u32),
   Load(u8,LoadOp,Regno,Regno,u32),
@@ -198,7 +198,7 @@ impl RiscvOpImac {
 	  "uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(4,d.into(),   imm!(u; [31:12])),
 	  "uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(4,d.into(), imm!(u; [31:12])),
 	  "uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(4,d.into(),   imm!(u; [20:20 10:1 11:11 19:12])),
-	  "uuuuuuu uuuuu uuuuu uuu ddddd 11001 11" => Jalr(4,d.into(),imm!(u;[11:0])),
+	  "iiiiiii iiiii aaaaa 000 ddddd 11001 11" => Jalr(4,d.into(),a.into(),imm!(i;[11:0])),
 	  "uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei(4),
 	  "iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(4,f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
 	  "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
@@ -230,7 +230,8 @@ impl RiscvOpImac {
 	  "110 i iiaaa ii iii 01"  => Branch(2,Bne,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),//	  Bnez(Regno8,u32),
 	  "000 i ddddd ii iii 10"  => AluI(2,Sll,d.into(),d.into(),imm!(i; nzuimm[5:5 4:0])),	     //	  SllI(Regno,u32),
 	  "100 1 00000 00 000 10"  => Csr(2,Ebreak,X0,X0,0),					     //	  Ebreak,
-	  "100 1 aaaaa 00 000 10"  => Jalr(2,a.into(),0),					     //	  Jalr(Regno),
+	  "100 0 00001 00 000 10"  => Jalr(2,X0,X1,0),			   			     //	  ret???? Jalr(Regno),	  
+	  "100 1 aaaaa 00 000 10"  => Jalr(2,X0,a.into(),0),					     //	  Jalr(Regno),
 	  "100 1 ddddd aa aaa 10"  => Alu(2,Add,d.into(),d.into(),a.into()),			     //	  Add(Regno,Regno),
 	  "100 0 ddddd aa aaa 10"  => Alu(2,Add,d.into(),a.into(),X0),				     //	  Mv(Regno,Regno),
 	  "010 i ddddd ii iii 10"  => Load(2,Lw,d.into(),X2,imm!(i; uimm[5:5 4:2 7:6])),	     //	  Ldwsp(Regno,u32),
@@ -443,11 +444,11 @@ fn main() {
      0x1141     => "AluI(2,Add,X2,X2,-16)  // 80000010:	1141                	addi	sp,sp,-16";
      0xc616     => "Store(2,Sw,X5,X2,12)   // 80000012:	c616                	sw	t0,12(sp)";
      0x00000297 => "Auipc(4,X5,0)          // 80000014:	00000297          	auipc	t0,0x0";
-     0x1ac28293 => "AluI(4,Add,X5,X5,428) // 80000018:	1ac28293          	addi	t0,t0,428 # 800001c0 <asm_label>";
+     0x1ac28293 => "AluI(4,Add,X5,X5,428)  // 80000018:	1ac28293          	addi	t0,t0,428 # 800001c0 <asm_label>";
      0x13829073 => "Csr(4,Csrrw,X0,X5,312) // 8000001c:	13829073          	csrw	0x138,t0";
      0x42b2     => "Load(2,Lw,X5,X2,12)    // 80000020:	42b2                	lw	t0,12(sp)";
      0x0141     => "AluI(2,Add,X2,X2,16)   // 80000022:	0141                	addi	sp,sp,16";
-     0x8082     => "Jr(2,X1)               // 80000024:	8082                	ret"
+     0x8082     => "Jalr(2,X1,0)           // 80000024:	8082                	ret"
 
    }
 
