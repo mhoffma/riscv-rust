@@ -3,7 +3,7 @@ use bitmatch::bitmatch;
 
 
 macro_rules! fenum {
-  ($ty:ident = { $( $enum:ident ),* } 
+  ($ty:ident = { $( $enum:ident ),* }
   ) => {
     #[repr(u8)]
     #[derive(Debug,Copy,Clone)]
@@ -29,8 +29,8 @@ macro_rules! fenum {
   ( @enumerate $i:expr ; [ $( $enum:ident : $val:expr )* ]) => {
     $( $enum:$val ),*
   };
-  
-  ( @enumerate $i:expr ; [ $( $enum:ident : $val:expr )* ] $e:ident $( $emore:ident )*) => { 
+
+  ( @enumerate $i:expr ; [ $( $enum:ident : $val:expr )* ] $e:ident $( $emore:ident )*) => {
     fenum!(@enumerate $i+1; [$($enum:$val)* $e:$i] $($emore)*)
   };
 
@@ -60,7 +60,7 @@ macro_rules! fimm {
     ($val:expr; nzuimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
     ($val:expr; nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
     ($val:expr; upper nzimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*])<<16 };
-    ($val:expr; uimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };    
+    ($val:expr; uimm [$($m:literal:$l:literal)*])  => { fimm!(@ false,false,  $val; [$($m:$l)*]) };
     ($val:expr; sx[$($m:literal:$l:literal)*])  => { fimm!(@ false,true,  $val; [$($m:$l)*]) };
     ($val:expr; dbg [$($m:literal:$l:literal)*])    => { fimm!(@ true,false, $val; [$($m:$l)*]) };
     ($val:expr; dbg sx[$($m:literal:$l:literal)*])  => { fimm!(@ true,true,  $val; [$($m:$l)*]) };
@@ -71,7 +71,7 @@ macro_rules! fimm {
         fimm!(@fe $dbg,$sx,$val,0 ; $($m:$l)* ) // base case
     };
     (@ $dbg:literal,$sx:literal,$val:expr; [$m:literal:$l:literal $($m0:literal:$l0:literal)*]
-     $($mr:literal:$lr:literal)*) => { 
+     $($mr:literal:$lr:literal)*) => {
         fimm!(@ $dbg,$sx,$val; [$($m0:$l0)*] $m:$l $($mr:$lr)*)  // recursion
     };
 
@@ -93,7 +93,7 @@ macro_rules! fimm {
 	let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
 	let o =	if $sx { v | _m}
 		else { v };
-	
+
         if $dbg {
           println!("pos={:2} ({:2}:{:2}) mask={:032b} place={:032b} {:032b}",$pos,p,sz,
  	           (1<<sz)-1, ((1<<sz)-1)<<p, o)
@@ -130,28 +130,23 @@ impl Into<usize> for Regno {
     }
 }
 // todo these need to really point to Regno X8=Regno::X8
-fenum!{ Regno8 ={X8,X9,X10,X11,X12,X13,X14,X15} } 
+fenum!{ Regno8 ={X8,X9,X10,X11,X12,X13,X14,X15} }
 impl Into<usize> for Regno8 {
     fn into(self) -> usize {
         self as usize+8
     }
 }
 
-fenum!{ Branch = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
+fenum!{ BranchOp = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
 
 fenum!{ LoadOp = { Lb, Lh, Lw, Lbu, Lbh } }
 
 fenum!{ StoreOp = {  Sb, Sh, Sw } }
 
-fenum!{ AluIOp = {
-   AddI:0, Slli:1, Slti:2, Sltiu:3,
-   Xori:4, Srli:5, Ori:6,  Andi:7,
-   Srai:13
-} }
 
 fenum!{ AluOp = {
    Add:0,Sll:1,Slt:2,Sltu:3,
-   Xor:4,Srl:5,Or:6,And:7,
+   Xor:4,Srl:5,Ior:6,And:7,
    Sub:8,Sra:13
 } }
 
@@ -176,65 +171,40 @@ fenum!{ AmoOp = {
 }
 
 
-#[derive(Debug)]
-enum RiscvOpC {
-     Add4spn(Regno,u32),
-     Ldw(Regno8,u32),
-     Addi(Regno,u32),
-     Nop,
-     Jal(u32),
-     Addiw(Regno,u32),
-     Li(Regno,u32),
-     Addi16sp(u32),
-     SrlI(Regno8,u32),
-     SrlaI(Regno8,u32),
-     AndI(Regno8,u32),
-     Sub(Regno8,Regno8),
-     Xor(Regno8,Regno8),
-     Ior(Regno8,Regno8),
-     And(Regno8,Regno8),
-     J(u32),
-     Beqz(Regno8,u32),
-     Bnez(Regno8,u32),
-     SllI(Regno,u32),
-     Jr(Regno),
-     Ebreak,
-     Jalr(Regno),
-     Add(Regno,Regno),
-     Mv(Regno,Regno),
-     Ldwsp(Regno,u32),
-     Swsp(Regno,u32),
-     None
-}
 
 #[derive(Debug)]
 enum RiscvOpImac {
-  Lui(u32),
+  Lui(Regno,u32),
   Auipc(Regno,u32),
-  Jal(u32),
+  Jal(Regno,u32),
   Jalr(Regno,u32),
   Fencei,
-  Branch(Branch,Regno,Regno,u32),
+  Branch(BranchOp,Regno,Regno,u32),
   Load(LoadOp,Regno,Regno,u32),
   Store(StoreOp,Regno,Regno,u32),
-  AluI(AluIOp,Regno,Regno,u32),
+  AluI(AluOp,Regno,Regno,u32),
   Alu(AluOp,Regno,Regno,Regno),
   Csr(CsrOp,Regno,Regno,u32),
   Mul(MulOp,Regno,Regno,Regno),
   Amo(AmoOp,Regno,Regno,Regno,bool,bool),
-  C(RiscvOpC),
   None
 }
-  
+
+impl RiscvOpImac {
 #[bitmatch]
 fn decode(inst: u32) -> RiscvOpImac {
     use RiscvOpImac::*;
-    type C = RiscvOpC;
+    use AluOp::*;
+    use Regno::*;
+    use LoadOp::*;
+    use StoreOp::*;    
+    use BranchOp::*;
+    use CsrOp::*;    
     #[bitmatch]
     match inst {
-	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(          imm!(u; [31:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(d.into(),   imm!(u; [31:12])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(d.into(), imm!(u; [31:12])),
-	"uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(          imm!(u; [20:20 10:1 11:11 19:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(d.into(),   imm!(u; [20:20 10:1 11:11 19:12])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 11001 11" => Jalr(d.into(),imm!(u;[11:0])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei,
 	"iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
@@ -243,39 +213,39 @@ fn decode(inst: u32) -> RiscvOpImac {
         "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(f.into(),d.into(),a.into(),  imm!(i;[11:0])),
         "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(f.into(),d.into(),a.into(),   imm!(i;[11:0])),
         "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(f.into(),d.into(),a.into(),b.into()),
-        "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(f.into(),d.into(),a.into(),b.into()),	
+        "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(f.into(),d.into(),a.into(),b.into()),
         "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(f.into(),d.into(),a.into(),b.into(),q==1,l==1),
 
-	"000 i iiiii ii ddd 00"  => C(C::Add4spn(d.into(),imm!(i;nzuimm[5:4 9:6 2:2 3:3]))),
-	"010 i iiaaa ii ddd 00"  => C(C::Ldw(d.into(),imm!(i;uimm[5:3 2:2 6:6]))),
-	"000 0 00000 00 000 01"  => C(C::Nop),
-	"000 i ddddd ii iii 01"  => C(C::Addi(d.into(),imm!(i;nzimm[5:5 4:0]))),
-	"001 i iiiii ii iii 01"  => C(C::Jal(imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
-	"001 i ddddd ii iii 01"  => C(C::Addiw(d.into(),imm!(i; sx[5:5 4:0]))),
-	"010 i ddddd ii iii 01"  => C(C::Li(d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5]))),
-	"011 i 00010 ii iii 01"  => C(C::Addi16sp(imm!(i;nzimm[4:4 6:6 8:7 5:5]))),
-	"011 i ddddd ii iii 01"  => C(C::Li(d.into(),imm!(i; upper nzimm[4:4 6:6 8:7 5:5]))),
-	"100 i 00ddd ii iii 01"  => C(C::SrlI(d.into(),imm!(i;nzimm[16:12]))),
-	"100 i 01ddd ii iii 01"  => C(C::SrlaI(d.into(),imm!(i;nzimm[16:12]))),
-	"100 i 10ddd ii iii 01"  => C(C::AndI(d.into(),imm!(i;nzimm[16:12]))),
-	"100 0 11ddd 00 bbb 01"  => C(C::Sub(d.into(),b.into())),
-	"100 0 11ddd 01 bbb 01"  => C(C::Xor(d.into(),b.into())),
-	"100 0 11ddd 10 bbb 01"  => C(C::Ior(d.into(),b.into())),
-	"100 0 11ddd 11 bbb 01"  => C(C::And(d.into(),b.into())),
-        "101 i iiiii ii iii 01"  => C(C::J(imm!(i; sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5]))),
-	"110 i iiaaa ii iii 01"  => C(C::Beqz(a.into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5]))),
-	"110 i iiaaa ii iii 01"  => C(C::Bnez(a.into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5]))),
-	"000 i ddddd ii iii 10"  => C(C::SllI(d.into(),imm!(i; nzuimm[5:5 4:0]))),
-	"100 0 aaaaa 00 000 10"  => C(C::Jr(a.into())),
-	"100 1 00000 00 000 10"  => C(C::Ebreak),
-	"100 1 aaaaa 00 000 10"  => C(C::Jalr(a.into())),
-	"100 1 ddddd aa aaa 10"  => C(C::Add(d.into(),a.into())),
-	"100 0 ddddd aa aaa 10"  => C(C::Mv(d.into(),a.into())),
-	"010 i ddddd ii iii 10"  => C(C::Ldwsp(d.into(),imm!(i; uimm[5:5 4:2 7:6]))),
-	"110 i iiiii aa aaa 10"  => C(C::Swsp(a.into(),imm!(i; uimm[5:2 7:6]))),
+	"000 i iiiii ii ddd 00"  => AluI(Add,(d+8).into(),X2,imm!(i;nzuimm[5:4 9:6 2:2 3:3])),       //   Add4spn(Regno,u32),
+	"010 i iiaaa ii ddd 00"  => Load(Lw,(d+8).into(),(a+8).into(),imm!(i;uimm[5:3 2:2 6:6])),    //	  Ldw(Regno8,u32),
+	"000 0 00000 00 000 01"  => AluI(Add,X0,X0,0),						     //	  Addi(Regno,u32),
+	"000 i ddddd ii iii 01"  => AluI(Add,d.into(),d.into(),imm!(i;nzimm[5:5 4:0])),		     //   Nop,
+	"001 i iiiii ii iii 01"  => Jal(X0,imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),	     //	  Jal(u32),
+	"001 i ddddd ii iii 01"  => AluI(Add,d.into(),d.into(),imm!(i; sx[5:5 4:0])),		     //	  Addiw(Regno,u32),
+	"010 i ddddd ii iii 01"  => Lui(d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5])),		     //	  Li(Regno,u32),
+	"011 i 00010 ii iii 01"  => AluI(Add,X2,X2,imm!(i;nzimm[4:4 6:6 8:7 5:5])),                  //	  Addi16sp(u32),
+	"011 i ddddd ii iii 01"  => Lui(d.into(),imm!(i; upper nzimm[4:4 6:6 8:7 5:5])),	     //
+	"100 i 00ddd ii iii 01"  => AluI(Srl,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),	     //	  SrlI(Regno8,u32),
+	"100 i 01ddd ii iii 01"  => AluI(Sra,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),	     //	  SrlaI(Regno8,u32),
+	"100 i 10ddd ii iii 01"  => AluI(And,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),	     //	  AndI(Regno8,u32),
+	"100 0 11ddd 00 bbb 01"  => Alu(Sub,(d+8).into(),(d+8).into(),b.into()),		     //	  Sub(Regno8,Regno8),
+	"100 0 11ddd 01 bbb 01"  => Alu(Xor,(d+8).into(),(d+8).into(),b.into()),		     //	  Xor(Regno8,Regno8),
+	"100 0 11ddd 10 bbb 01"  => Alu(Ior,(d+8).into(),(d+8).into(),b.into()),		     //	  Ior(Regno8,Regno8),
+	"100 0 11ddd 11 bbb 01"  => Alu(And,(d+8).into(),(d+8).into(),b.into()),		     //	  And(Regno8,Regno8),
+        "101 i iiiii ii iii 01"  => Jal(X0,imm!(i; sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),	     //	  J(u32),
+	"110 i iiaaa ii iii 01"  => Branch(Beq,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),    //	  Beqz(Regno8,u32),
+	"110 i iiaaa ii iii 01"  => Branch(Bne,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),    //	  Bnez(Regno8,u32),
+	"000 i ddddd ii iii 10"  => AluI(Sll,d.into(),d.into(),imm!(i; nzuimm[5:5 4:0])),	     //	  SllI(Regno,u32),
+	"100 1 00000 00 000 10"  => Csr(Ebreak,X0,X0,0),					     //	  Ebreak,
+	"100 1 aaaaa 00 000 10"  => Jalr(a.into(),0),					             //	  Jalr(Regno),
+	"100 1 ddddd aa aaa 10"  => Alu(Add,d.into(),d.into(),a.into()),			     //	  Add(Regno,Regno),
+	"100 0 ddddd aa aaa 10"  => Alu(Add,d.into(),a.into(),X0),				     //	  Mv(Regno,Regno),
+	"010 i ddddd ii iii 10"  => Load(Lw,d.into(),X2,imm!(i; uimm[5:5 4:2 7:6])),		     //	  Ldwsp(Regno,u32),
+	"110 i iiiii aa aaa 10"  => Store(Sw,a.into(),X2,imm!(i; uimm[5:2 7:6])),		     //	  Swsp(Regno,u32),
 
          _ => RiscvOpImac::None
     }
+}
 }
 
 struct Sim<'a> {
@@ -300,17 +270,19 @@ enum WriteBackResult {
 impl Sim<'_> {
      fn load_instruction(&self, ea: u32) {
      }
+
      fn decode(&self, ir : u32) -> RiscvOpImac {
-      	crate::decode(ir)
+        let op = RiscvOpImac::decode(ir);
+	op
      }
-     
+
      fn readregs(&self,  opcode : RiscvOpImac) -> ReadResult {
        use RiscvOpImac::*;
        match opcode {
          Alu(op,dst,rs1,rs2) => {
 	   ReadResult::Reg2(rs1,self.regs[rs1 as usize],rs2,self.regs[rs2 as usize])
 	 },
-       	 _ => ReadResult::None 
+       	 _ => ReadResult::None
        }
      }
 
@@ -319,7 +291,7 @@ impl Sim<'_> {
        match opcode {
          Alu(op,dst,rs1,rs2) => {
 	    match rv {
-	      ReadResult::Reg2(rs1n,rs1,rs2n,rs2) => 
+	      ReadResult::Reg2(rs1n,rs1,rs2n,rs2) =>
 	        match op {
 		  AluOp::Add  => ExecuteResult::Ok(*dst,rs1 + rs2),
 		  AluOp::Sll  => ExecuteResult::Ok(*dst,rs1 << (rs2&0x1f)),
@@ -327,7 +299,7 @@ impl Sim<'_> {
 		  AluOp::Sltu => ExecuteResult::Ok(*dst,(rs1 < rs2) as u32),
 		  AluOp::Xor  => ExecuteResult::Ok(*dst,rs1 ^ rs2),
 		  AluOp::Srl  => ExecuteResult::Ok(*dst,rs1 >> (rs2 & 0x1F)),
-		  AluOp::Or   => ExecuteResult::Ok(*dst,rs1 | rs2),
+		  AluOp::Ior  => ExecuteResult::Ok(*dst,rs1 | rs2),
 		  AluOp::And  => ExecuteResult::Ok(*dst,rs1 & rs2),
 		  AluOp::Sub  => ExecuteResult::Ok(*dst,rs1 - rs2),
 		  AluOp::Sra  => ExecuteResult::Ok(*dst,((*rs1 as i32) - (*rs2 as i32)) as u32),
@@ -353,15 +325,15 @@ impl Sim<'_> {
 
 #[test]
 fn t0 () {
-    assert_eq!("Mul(Divu, X8, X8, X18)",format!("{:?}",decode(0x03245433)));
+    assert_eq!("Mul(Divu, X8, X8, X18)",format!("{:?}",RiscvOpImac::decode(0x03245433)));
 }
 
 fn strip(s : String) -> String { s.chars().filter(|c| !c.is_whitespace()).collect() }
-macro_rules! check { 
+macro_rules! check {
   ( $($opc:literal => $note:literal );* ) => {
      $(
         {
-	 let res   = decode($opc);
+	 let res   = RiscvOpImac::decode($opc);
 	 let sres : String = strip(format!("{:?}",res));
 	 let mut n = $note.split("//");
 	 match n.next() {
@@ -389,7 +361,7 @@ fn main() {
      0x12048513 => "AluI(AddI,X10,X9,288) //80000046:	12048513          	addi	a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
      0x0001     => "C(Nop)";
      0x004C     => "C(Add4spn(X3, 4))";
-     
+
      0x00002117 => "Auipc(X2,8192)       // 80000000:	00002117          	auipc	sp,0x2";
      0x1e010113 => "AluI(AddI,X2,X2,480) // 80000004:	1e010113          	addi	sp,sp,480 # 800021e0 <_sstack>";
      0x1141     => "C(Addi(X2,48))       // 80000008:	1141                	addi	sp,sp,-16";
