@@ -6,7 +6,7 @@ macro_rules! fenum {
   ($ty:ident = { $( $enum:ident ),* } 
   ) => {
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug,Copy,Clone)]
     enum $ty {
       $( $enum, )*
     }
@@ -124,6 +124,19 @@ fn f0() {
 fenum!{Regno = { X0,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,
 	         X16,X17,X18,X19,X20,X21,X22,X23,X24,X25,X26,X27,X28,X29,X30,X31 } }
 
+impl Into<usize> for Regno {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+// todo these need to really point to Regno X8=Regno::X8
+fenum!{ Regno8 ={X8,X9,X10,X11,X12,X13,X14,X15} } 
+impl Into<usize> for Regno8 {
+    fn into(self) -> usize {
+        self as usize+8
+    }
+}
+
 fenum!{ Branch = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
 
 fenum!{ LoadOp = { Lb, Lh, Lw, Lbu, Lbh } }
@@ -162,9 +175,6 @@ fenum!{ AmoOp = {
    }
 }
 
-// todo these need to really point to Regno X8=Regno::X8
-fenum!{ Regno8 ={X8,X9,X10,X11,X12,X13,X14,X15} } 
-
 
 #[derive(Debug)]
 enum RiscvOpC {
@@ -193,14 +203,14 @@ enum RiscvOpC {
      Add(Regno,Regno),
      Mv(Regno,Regno),
      Ldwsp(Regno,u32),
-     Swsp(u32,Regno),
+     Swsp(Regno,u32),
      None
 }
 
 #[derive(Debug)]
 enum RiscvOpImac {
   Lui(u32),
-  Auipc(u32),
+  Auipc(Regno,u32),
   Jal(u32),
   Jalr(Regno,u32),
   Fencei,
@@ -223,7 +233,7 @@ fn decode(inst: u32) -> RiscvOpImac {
     #[bitmatch]
     match inst {
 	"uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(          imm!(u; [31:12])),
-	"uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(        imm!(u; [31:12])),
+	"uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(d.into(), imm!(u; [31:12])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(          imm!(u; [20:20 10:1 11:11 19:12])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 11001 11" => Jalr(d.into(),imm!(u;[11:0])),
 	"uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei,
@@ -262,13 +272,84 @@ fn decode(inst: u32) -> RiscvOpImac {
 	"100 1 ddddd aa aaa 10"  => C(C::Add(d.into(),a.into())),
 	"100 0 ddddd aa aaa 10"  => C(C::Mv(d.into(),a.into())),
 	"010 i ddddd ii iii 10"  => C(C::Ldwsp(d.into(),imm!(i; uimm[5:5 4:2 7:6]))),
-	"110 i iiiii aa aaa 10"  => C(C::Swsp(imm!(i; uimm[5:2 7:6]),a.into())),
-
+	"110 i iiiii aa aaa 10"  => C(C::Swsp(a.into(),imm!(i; uimm[5:2 7:6]))),
 
          _ => RiscvOpImac::None
     }
 }
 
+struct Sim<'a> {
+   regs : [u32; 32],
+   mem  : &'a Vec<u8>
+}
+
+enum ReadResult {
+  Reg1(Regno,u32),
+  Reg2(Regno,u32,Regno,u32),
+  None
+}
+enum ExecuteResult {
+  Ok(Regno,u32),
+  Trap(u32)
+}
+enum WriteBackResult {
+  Ok,
+  Trap(u32)
+}
+
+impl Sim<'_> {
+     fn load_instruction(&self, ea: u32) {
+     }
+     fn decode(&self, ir : u32) -> RiscvOpImac {
+      	crate::decode(ir)
+     }
+     
+     fn readregs(&self,  opcode : RiscvOpImac) -> ReadResult {
+       use RiscvOpImac::*;
+       match opcode {
+         Alu(op,dst,rs1,rs2) => {
+	   ReadResult::Reg2(rs1,self.regs[rs1 as usize],rs2,self.regs[rs2 as usize])
+	 },
+       	 _ => ReadResult::None 
+       }
+     }
+
+     fn execute(&self, opcode : &RiscvOpImac, rv : &ReadResult) -> ExecuteResult {
+       use RiscvOpImac::*;
+       match opcode {
+         Alu(op,dst,rs1,rs2) => {
+	    match rv {
+	      ReadResult::Reg2(rs1n,rs1,rs2n,rs2) => 
+	        match op {
+		  AluOp::Add  => ExecuteResult::Ok(*dst,rs1 + rs2),
+		  AluOp::Sll  => ExecuteResult::Ok(*dst,rs1 << (rs2&0x1f)),
+		  AluOp::Slt  => ExecuteResult::Ok(*dst,((*rs1 as i32) < (*rs2 as i32)) as u32),
+		  AluOp::Sltu => ExecuteResult::Ok(*dst,(rs1 < rs2) as u32),
+		  AluOp::Xor  => ExecuteResult::Ok(*dst,rs1 ^ rs2),
+		  AluOp::Srl  => ExecuteResult::Ok(*dst,rs1 >> (rs2 & 0x1F)),
+		  AluOp::Or   => ExecuteResult::Ok(*dst,rs1 | rs2),
+		  AluOp::And  => ExecuteResult::Ok(*dst,rs1 & rs2),
+		  AluOp::Sub  => ExecuteResult::Ok(*dst,rs1 - rs2),
+		  AluOp::Sra  => ExecuteResult::Ok(*dst,((*rs1 as i32) - (*rs2 as i32)) as u32),
+		  _ => ExecuteResult::Trap(3)
+	        },
+	      _ => ExecuteResult::Trap(3)
+	      }
+	 }
+	 _ => ExecuteResult::Trap(3)
+      }
+   }
+
+   fn writeback(&mut self, wb : &ExecuteResult) -> WriteBackResult {
+     match wb {
+       ExecuteResult::Ok(dst,rval) => {
+       				   self.regs[*dst as usize] = *rval;
+				   WriteBackResult::Ok
+       },
+       ExecuteResult::Trap(t) => WriteBackResult::Trap(*t)
+     }
+   }
+}
 
 #[test]
 fn t0 () {
@@ -308,8 +389,22 @@ fn main() {
      0x12048513 => "AluI(AddI,X10,X9,288) //80000046:	12048513          	addi	a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
      0x0001     => "C(Nop)";
      0x004C     => "C(Add4spn(X3, 4))";
-     0x3fc9     => "C(Jal(4050))     // 80000060:	3fc9                	jal	80000032 <lprint>";
-     0x3779     => "C(Jal(...))      // 80000082:	3779                	jal	80000010 <asm_demo_func>";
-     0x1141     => "C(Addi(X2,-16))  //	80000010:	1141                	addi	sp,sp,-16"
+     
+     0x00002117 => "Auipc(X2,8192)       // 80000000:	00002117          	auipc	sp,0x2";
+     0x1e010113 => "AluI(AddI,X2,X2,480) // 80000004:	1e010113          	addi	sp,sp,480 # 800021e0 <_sstack>";
+     0x1141     => "C(Addi(X2,48))       // 80000008:	1141                	addi	sp,sp,-16";
+     0xc606     => "C(Swsp(X1,12))       // 8000000a:	c606                	sw	ra,12(sp)";
+     0x02e000ef => "Jal(46)              // 8000000c:	02e000ef          	jal	ra,8000003a <main>";
+     0x3fc9     => "C(Jal(4050))         // 80000060:	3fc9                	jal	80000032 <lprint>";
+     0x3779     => "C(Jal(...))          // 80000082:	3779                	jal	80000010 <asm_demo_func>";
+     0x1141     => "C(Addi(X2,-16))      // 80000010:	1141                	addi	sp,sp,-16";
+     0xc616     => "C(Swsp(X5,12))       // 80000012:	c616                	sw	t0,12(sp)";
+     0x00000297 => "Auipc(X5,0)          // 80000014:	00000297          	auipc	t0,0x0";
+     0x1ac28293 => "AluI(AddI,X5,X5,428) // 80000018:	1ac28293          	addi	t0,t0,428 # 800001c0 <asm_label>";
+     0x13829073 => "Csr(Csrrw,X0,X5,312) // 8000001c:	13829073          	csrw	0x138,t0";
+     0x42b2     => "C(Ldwsp(X5,12))      // 80000020:	42b2                	lw	t0,12(sp)";
+     0x0141     => "C(Addi(X2,16))       // 80000022:	0141                	addi	sp,sp,16";
+     0x8082     => "C(Jr(X1))            // 80000024:	8082                	ret"
+
    }
 }
