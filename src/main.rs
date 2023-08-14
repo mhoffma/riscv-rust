@@ -271,11 +271,34 @@ struct ArchState {
     // Bit 3+ = Load/Store reservation LSBs.
    extraflags : u32
 }
+impl ArchState {
+  fn reset() -> Self {
+     ArchState {
+        regs : [0; 32],
+	pc : 0,
+        mstatus : 0,
+        cyclel : 0,
+        cycleh : 0,
+        timerl : 0,
+        timerh : 0,
+        timermatchl : 0,
+        timermatchh : 0,
+        mscratch : 0,
+        mtvec : 0,
+        mie : 0,
+        mip : 0,
+        mepc : 0,
+        mtval : 0,
+        mcause : 0,
+        extraflags : 0
+     }
+  }
+}
 
-struct Sim<'a> {
+struct Sim {
    arch : ArchState,
    base : u32,
-   mem  : &'a Vec<u8>
+   mem  : Vec<u8>
 }
 
 #[derive(Debug)]
@@ -304,41 +327,13 @@ enum WriteBackResult {
   Trap(u32)
 }
 
-impl ArchState {
-  fn reset() -> Self {
-     ArchState {
-        regs : [0; 32],
-	pc : 0,
-        mstatus : 0,
-        cyclel : 0,
-        cycleh : 0,
-        timerl : 0,
-        timerh : 0,
-        timermatchl : 0,
-        timermatchh : 0,
-        mscratch : 0,
-        mtvec : 0,
-        mie : 0,
-        mip : 0,
-        mepc : 0,
-        mtval : 0,
-        mcause : 0,
-        extraflags : 0
-     }
-  }
-}
 
-impl Sim<'_> {
-/*
-     fn new(base:u32, mem: &mut Vec<u8>) -> Self {
-       Self {
-       	       arch: ArchState::reset(),
-	       mem: mem
-	    }
-     }
-     */
+impl Sim {
+     
      fn load_instruction(&self, ea: u32) -> u32 {
-       0
+       let a = u32::wrapping_sub(ea, self.base) as usize;
+       let input = &self.mem[a..a+4];
+       u32::from_le_bytes(input.try_into().unwrap())
      }
 
      fn decode(&self, ir : u32) -> RiscvOpImac {
@@ -457,13 +452,17 @@ fn main() {
 
    }
 
-     let mut mem = vec![0_u8; 1024];
+     let mut s = Sim{
+        arch: ArchState::reset(),
+	base: 0x8000_0000,
+        mem: vec![0_u8; 1024]
+     };
+
      for i in 0..10 {
-          mem[i*2+0]=0x41;
-     	  mem[i*2+1]=0x01;
+          s.mem[i*2+0]=0x41;
+     	  s.mem[i*2+1]=0x01;
      }
-     let mut s = Sim{ arch: ArchState::reset(), base: 0x80000000, mem: &mem };
-     s.arch.pc=0x8000000;
+     s.arch.pc=0x8000_0000;
 
      for i in 0..10 {
         s.functional_step();
