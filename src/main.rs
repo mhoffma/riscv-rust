@@ -91,12 +91,11 @@ macro_rules! fimm {
 	let mask=((1<<sz)-1);
 	let v = (($val&(mask<<$pos))>>$pos)<<p;
 	let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
-	let o =	if $sx { v | _m}
+	let o =	if $sx && v!=0 { v | _m}
 		else { v };
 
         if $dbg {
-          println!("pos={:2} ({:2}:{:2}) mask={:032b} place={:032b} {:032b}",$pos,p,sz,
- 	           (1<<sz)-1, ((1<<sz)-1)<<p, o)
+          println!("v={:08x} _m={:08x} o={:08x} {}:{} sz={} p={}",v,_m,o,$m,$l,sz,p)
         };
 	o
       }
@@ -410,7 +409,7 @@ macro_rules! check {
 	 let mut n = $note.split("//");
 	 match n.next() {
 	   Some(t) =>
-              println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, t),
+              println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note),
 	   None => {}
 	 }
 	}
@@ -421,8 +420,8 @@ macro_rules! check {
 
 fn main() {
    check! {
-     0x80000537 => "Lui(4,2147483648)" ;
-     0xfe079ce3 => "Branch(4,Bne, X15, X0, 8184)" ;
+     0x80000537 => "Lui(4,X10,2147483648)" ;
+     0xfe079ce3 => "Branch(4,Bne, X15, X0, 4294967288)" ;
      0xff872683 => "Load(4,Lw, X13, X14, 4088)" ;
      0x00f72023 => "Store(4,Sw, X0, X14, 15)" ;
      0x01010113 => "AluI(4,Add, X2, X2, 16)" ;
@@ -431,8 +430,8 @@ fn main() {
      0x03245433 => "Mul(4,Divu, X8, X8, X18)";
      0x12450513 => "AluI(4,Add, X10, X10, 292)";
      0x12048513 => "AluI(4,Add,X10,X9,288) //80000046:	12048513          	addi	a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
-     0x0001     => "AluI(4,Add,X0,X0,0)";
-     0x004C     => "AluI(4,Add,X11,X2,4)";
+     0x0001     => "AluI(2,Add,X0,X0,0)";
+     0x004C     => "AluI(2,Add,X11,X2,4)";
 
      0x00002117 => "Auipc(4,X2,8192)       // 80000000:	00002117          	auipc	sp,0x2";
      0x1e010113 => "AluI(4,Add,X2,X2,480)  // 80000004:	1e010113          	addi	sp,sp,480 # 800021e0 <_sstack>";
@@ -440,7 +439,7 @@ fn main() {
      0xc606     => "Store(2,Sw,X1,X2,12)   // 8000000a:	c606                	sw	ra,12(sp)";
      0x02e000ef => "Jal(4,X1,46)           // 8000000c:	02e000ef          	jal	ra,8000003a <main>";
      0x3fc9     => "Jal(2,X1,46)           // 80000060:	3fc9                	jal	80000032 <lprint>";
-     0x3779     => "Jal(2,X1,...)          // 80000082:	3779                	jal	80000010 <asm_demo_func>";
+     0x3779     => "Jal(2,X1,-120)         // 80000082:	3779                	jal	80000010 <asm_demo_func>";
      0x1141     => "AluI(2,Add,X2,X2,-16)  // 80000010:	1141                	addi	sp,sp,-16";
      0xc616     => "Store(2,Sw,X5,X2,12)   // 80000012:	c616                	sw	t0,12(sp)";
      0x00000297 => "Auipc(4,X5,0)          // 80000014:	00000297          	auipc	t0,0x0";
