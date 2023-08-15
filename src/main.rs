@@ -178,7 +178,7 @@ enum RiscvOpImac {
   AluI(u8,AluOp,Regno,Regno,u32),
   Alu(u8,AluOp,Regno,Regno,Regno),
   Csr(u8,CsrOp,Regno,Regno,u32),
-  Mul(u8,MulOp,Regno,Regno,Regno),
+  Mult(u8,MulOp,Regno,Regno,Regno),
   Amo(u8,AmoOp,Regno,Regno,Regno,bool,bool),
   None
 }
@@ -206,7 +206,7 @@ impl RiscvOpImac {
 	  "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
 	  "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(4,f.into(),d.into(),a.into(),   imm!(i;[11:0])),
 	  "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(4,f.into(),d.into(),a.into(),b.into()),
-	  "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mul(4,f.into(),d.into(),a.into(),b.into()),
+	  "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mult(4,f.into(),d.into(),a.into(),b.into()),
 	  "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(4,f.into(),d.into(),a.into(),b.into(),q==1,l==1),
 
 	  "000 i iiiii ii ddd 00"  => AluI(2,Add,(d+8).into(),X2,imm!(i;nzuimm[5:4 9:6 2:2 3:3])),   //   Add4spn(Regno,u32),
@@ -244,7 +244,7 @@ impl RiscvOpImac {
 
 #[test]
 fn t0 () {
-    assert_eq!("Mul(Divu, X8, X8, X18)",format!("{:?}",RiscvOpImac::decode(0x03245433)));
+    assert_eq!("Mult(Divu, X8, X8, X18)",format!("{:?}",RiscvOpImac::decode(0x03245433)));
 }
 
 #[derive(Debug,Copy,Clone,Default)]
@@ -322,6 +322,7 @@ enum TrapKind {
 enum ReadResult {
   // isz,op, dst, rs1a, rs1, rs2a, rs2
   AluOperands(u8,AluOp,Regno,Regno,u32,Regno,u32),
+  MulOperands(u8,MulOp,Regno,Regno,u32,Regno,u32),  
   LoadOperands(u8,LoadOp,Regno,Regno,u32,u32),
   StoreOperands(u8,StoreOp,Regno,u32,Regno,u32,u32),  
   None
@@ -400,15 +401,18 @@ impl Sim {
 
      fn readoperands(&self,  opcode : RiscvOpImac) -> ReadResult {
        use RiscvOpImac::*;
+       use ReadResult::*;
        match opcode {
          Alu(isz,op,dst,rs1,rs2) => 
-	   ReadResult::AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
+	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
 	 AluI(isz,op,dst,rs1,imm) => 
-	   ReadResult::AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
+	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
+         Mult(isz,op,dst,rs1,rs2) => 
+	   MulOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
 	 Load(isz,op,dst,rs1,imm) =>
-	   ReadResult::LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
+	   LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
 	 Store(isz,op,src,rs1,imm) =>
-	   ReadResult::StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),	 
+	   StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),	 
        	 _ => ReadResult::None
        }
      }
@@ -417,6 +421,7 @@ impl Sim {
        use RiscvOpImac::*;
        use ReadResult::*;
        use AluOp::*;
+       use MulOp::*;       
        use LoadOp::*;
        use StoreOp::*;
        use Regno::*;
@@ -435,6 +440,48 @@ impl Sim {
 		  Sra  => ExecuteResult::Ok(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
 		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
 	    },
+	 MulOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
+	    match op {
+		  Mul  => ExecuteResult::Ok(isz,dst,rs1 * rs2),
+		  Mulh  => ExecuteResult::Ok(isz,dst,{
+		     let a = i64::from(rs1 as i32);
+		     let b = i64::from(rs2 as i32);
+		     let r = (a * b)>>32;
+		     r as u32
+		  }),
+		  Mulsu  => ExecuteResult::Ok(isz,dst,{
+		     let a = i64::from(rs1 as i32);
+		     let b = i64::from(rs2);
+		     let r = (a * b)>>32;
+		     r as u32
+		  }),
+		  Mulhu  => ExecuteResult::Ok(isz,dst,{
+		     let a = i64::from(rs1);
+		     let b = i64::from(rs2);
+		     let r = (a * b)>>32;
+		     r as u32
+		  }),
+		  Div  => ExecuteResult::Ok(isz,dst,{
+		     if rs2 == 0 { 0xFFFF_FFFF  }
+		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
+		     else {
+		        ((rs1 as i32)/(rs2 as i32)) as u32
+		     }}),
+		  Divu =>  ExecuteResult::Ok(isz,dst,{
+		     if rs2 == 0 { 0xFFFF_FFFF  }
+		     else { rs1 / rs2 }}),
+		  Rem  => ExecuteResult::Ok(isz,dst,{
+		     if rs2 == 0 { rs1  }
+		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
+		     else {
+		        ((rs1 as i32)%(rs2 as i32)) as u32
+		     }}),
+		  Remu =>  ExecuteResult::Ok(isz,dst,{
+		     if rs2 == 0 { rs1  }
+		     else { rs1 % rs2 }}),
+
+  		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+           },
          LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
 	   match op {
 	         Lb  => match self.load_data(rs1+imm,1,true) {
