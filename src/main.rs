@@ -131,7 +131,7 @@ impl Into<usize> for Regno {
 
 fenum!{ BranchOp = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
 
-fenum!{ LoadOp = { Lb, Lh, Lw, Lbu, Lbh } }
+fenum!{ LoadOp = { Lb, Lh, Lw, Lbu, Lhu } }
 
 fenum!{ StoreOp = {  Sb, Sh, Sw } }
 
@@ -298,6 +298,7 @@ impl ArchState {
 struct Sim {
    arch : ArchState,
    base : u32,
+   alignment : u32,
    mem  : Vec<u8>
 }
 
@@ -305,10 +306,15 @@ struct Sim {
 enum TrapKind {
   PCalignmentFault = 0,
   LoadInstructionFault = 1,
-  IllegalOpcode = 2,
+  IllegalInstruction = 2,
   Breakpoint = 3,
   LoadDataFault = 5,
-  StoreDataFault = 7,
+  AMOmissalignedFault = 6,
+  StoreAMOFault = 7,
+  EnvCall = 8,
+  InstructionPageFault = 12,
+  LoadPageFault = 13,
+  StoreAMOPageFault = 15,
   TimerInterrupt = 0x80000007,
   None
 }
@@ -316,26 +322,66 @@ enum TrapKind {
 enum ReadResult {
   // isz,op, dst, rs1a, rs1, rs2a, rs2
   AluOperands(u8,AluOp,Regno,Regno,u32,Regno,u32),
+  LoadOperands(u8,LoadOp,Regno,Regno,u32,u32),
   None
 }
 enum ExecuteResult {
   Ok(u8,Regno,u32),
-  Trap(u32)
+  Trap(TrapKind)
 }
 enum WriteBackResult {
   Ok(u32),
-  Trap(u32)
+  Trap(TrapKind)
 }
 
 
 impl Sim {
-     
-     fn load_instruction(&self, ea: u32) -> u32 {
-       let a = u32::wrapping_sub(ea, self.base) as usize;
-       let input = &self.mem[a..a+4];
-       u32::from_le_bytes(input.try_into().unwrap())
+     fn translate_addr(&self,ea : u32, amask : u32, afault: TrapKind, lfault: TrapKind)
+     -> Result<usize,TrapKind> {
+       let sz = self.mem.len();
+       if ea&amask != 0 {
+          Err(afault)
+       } else if ea < self.base {
+       	  Err(lfault) 
+       } else {
+          let a = u32::wrapping_sub(ea, self.base);
+          if a > self.base {
+       	     Err(lfault)
+	  } else {
+	     Ok(a as usize)
+	  }
+       }
      }
-
+     
+     fn load_instruction(&self, ea: u32) -> Result<u32,TrapKind> {
+       use TrapKind::*;
+       self.translate_addr(ea,self.alignment,PCalignmentFault,LoadInstructionFault).and_then(|a|  {
+	         let input = &self.mem[a..a+4];
+		 Ok(u32::from_le_bytes(input.try_into().unwrap())) })
+     }
+     
+     fn load_data(&self, ea :u32, sz : u32, signed : bool) -> Result<u32,TrapKind> {
+       use TrapKind::*;     
+       self.translate_addr(ea,sz-1,LoadDataFault,LoadDataFault).and_then(|a| {
+	   match sz {
+	     1 => {
+		    let input = &self.mem[a..a+1];
+		    Ok(if signed { ((input[0] as i8) as i32) as u32 }
+		       else      { input[0] as u32 })
+		  },
+	     2 => {
+		    let input = &self.mem[a..a+2];	 
+		    Ok(if signed { (i16::from_le_bytes(input.try_into().unwrap()) as i32) as u32 }
+		       else      { i16::from_le_bytes(input.try_into().unwrap()) as u32 })
+		  },
+	     4 => {
+		    let input = &self.mem[a..a+4];
+		    Ok(u32::from_le_bytes(input.try_into().unwrap()))
+		  },
+	     _ => Err(LoadDataFault)
+	   } })
+     }
+     
      fn decode(&self, ir : u32) -> RiscvOpImac {
      	RiscvOpImac::decode(ir)
      }
@@ -347,28 +393,56 @@ impl Sim {
 	   ReadResult::AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
 	 AluI(isz,op,dst,rs1,imm) => 
 	   ReadResult::AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
+	 Load(isz,op,dst,rs1,imm) =>
+	   ReadResult::LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
        	 _ => ReadResult::None
        }
      }
 
      fn execute(&self, rv : ReadResult) -> ExecuteResult {
        use RiscvOpImac::*;
+       use AluOp::*;
+       use LoadOp::*;       
        match rv {
 	 ReadResult::AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
 	    match op {
-		  AluOp::Add  => ExecuteResult::Ok(isz,dst,rs1 + rs2),
-		  AluOp::Sll  => ExecuteResult::Ok(isz,dst,rs1 << (rs2&0x1f)),
-		  AluOp::Slt  => ExecuteResult::Ok(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
-		  AluOp::Sltu => ExecuteResult::Ok(isz,dst,(rs1 < rs2) as u32),
-		  AluOp::Xor  => ExecuteResult::Ok(isz,dst,rs1 ^ rs2),
-		  AluOp::Srl  => ExecuteResult::Ok(isz,dst,rs1 >> (rs2 & 0x1F)),
-		  AluOp::Ior  => ExecuteResult::Ok(isz,dst,rs1 | rs2),
-		  AluOp::And  => ExecuteResult::Ok(isz,dst,rs1 & rs2),
-		  AluOp::Sub  => ExecuteResult::Ok(isz,dst,rs1 - rs2),
-		  AluOp::Sra  => ExecuteResult::Ok(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
-		  _ => ExecuteResult::Trap(3)
+		  Add  => ExecuteResult::Ok(isz,dst,rs1 + rs2),
+		  Sll  => ExecuteResult::Ok(isz,dst,rs1 << (rs2&0x1f)),
+		  Slt  => ExecuteResult::Ok(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
+		  Sltu => ExecuteResult::Ok(isz,dst,(rs1 < rs2) as u32),
+		  Xor  => ExecuteResult::Ok(isz,dst,rs1 ^ rs2),
+		  Srl  => ExecuteResult::Ok(isz,dst,rs1 >> (rs2 & 0x1F)),
+		  Ior  => ExecuteResult::Ok(isz,dst,rs1 | rs2),
+		  And  => ExecuteResult::Ok(isz,dst,rs1 & rs2),
+		  Sub  => ExecuteResult::Ok(isz,dst,rs1 - rs2),
+		  Sra  => ExecuteResult::Ok(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
+		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
 	    },
-	 _ => ExecuteResult::Trap(3)
+         ReadResult::LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
+	   match op {
+	         Lb  => match self.load_data(rs1+imm,1,true) {
+		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Lbu  => match self.load_data(rs1+imm,1,false) {
+		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Lh  => match self.load_data(rs1+imm,2,true) {
+		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Lhu  => match self.load_data(rs1+imm,2,false) {
+		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Lw  => match self.load_data(rs1+imm,4,false) {
+		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+   		 _   => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+	   },
+	 _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
        }
    }
 
@@ -384,7 +458,7 @@ impl Sim {
 
    fn functional_step (&mut self) {
       let pc = self.arch.pc;
-      let ir = self.load_instruction(pc);
+      let ir = self.load_instruction(pc).unwrap();
       let dstage  = self.decode(ir);
       let rstage  = self.readoperands(dstage);
       let estage  = self.execute(rstage);
@@ -393,7 +467,7 @@ impl Sim {
 	    self.arch.pc = pc + isz
 	 },
 	 WriteBackResult::Trap(kind) => {
-	    println!("{}",kind)
+	    println!("{:?}",kind)
 	 },
       }
    }
@@ -455,6 +529,7 @@ fn main() {
      let mut s = Sim{
         arch: ArchState::reset(),
 	base: 0x8000_0000,
+	alignment: 1,
         mem: vec![0_u8; 1024]
      };
 
