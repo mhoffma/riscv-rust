@@ -323,6 +323,7 @@ enum ReadResult {
   // isz,op, dst, rs1a, rs1, rs2a, rs2
   AluOperands(u8,AluOp,Regno,Regno,u32,Regno,u32),
   LoadOperands(u8,LoadOp,Regno,Regno,u32,u32),
+  StoreOperands(u8,StoreOp,Regno,u32,Regno,u32,u32),  
   None
 }
 enum ExecuteResult {
@@ -406,16 +407,21 @@ impl Sim {
 	   ReadResult::AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
 	 Load(isz,op,dst,rs1,imm) =>
 	   ReadResult::LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
+	 Store(isz,op,src,rs1,imm) =>
+	   ReadResult::StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),	 
        	 _ => ReadResult::None
        }
      }
 
-     fn execute(&self, rv : ReadResult) -> ExecuteResult {
+     fn execute(&mut self, rv : ReadResult) -> ExecuteResult {
        use RiscvOpImac::*;
+       use ReadResult::*;
        use AluOp::*;
-       use LoadOp::*;       
+       use LoadOp::*;
+       use StoreOp::*;
+       use Regno::*;
        match rv {
-	 ReadResult::AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
+	 AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
 	    match op {
 		  Add  => ExecuteResult::Ok(isz,dst,rs1 + rs2),
 		  Sll  => ExecuteResult::Ok(isz,dst,rs1 << (rs2&0x1f)),
@@ -429,7 +435,7 @@ impl Sim {
 		  Sra  => ExecuteResult::Ok(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
 		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
 	    },
-         ReadResult::LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
+         LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
 	   match op {
 	         Lb  => match self.load_data(rs1+imm,1,true) {
 		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
@@ -449,6 +455,22 @@ impl Sim {
 		 },
 	         Lw  => match self.load_data(rs1+imm,4,false) {
 		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+   		 _   => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+	   },
+         StoreOperands(isz,op,srca,src,rs1a,rs1,imm) =>
+	   match op {
+	         Sb  => match self.store_data(rs1+imm,1,src) {
+		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Sh  => match self.store_data(rs1+imm,2,src) {
+		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
+			   Err(t)  => ExecuteResult::Trap(t)
+		 },
+	         Sw  => match self.store_data(rs1+imm,4,src) {
+		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
    		 _   => ExecuteResult::Trap(TrapKind::IllegalInstruction)
