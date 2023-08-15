@@ -381,7 +381,18 @@ impl Sim {
 	     _ => Err(LoadDataFault)
 	   } })
      }
-     
+
+     fn store_data(&mut self, ea :u32, sz : u32, value: u32) -> Result<(),TrapKind> {
+       use TrapKind::*;
+       self.translate_addr(ea,sz-1,AMOmissalignedFault,StoreAMOPageFault).and_then(|a| {
+           let v = u32::to_le_bytes(value);
+	   for i in (0..(sz as usize)) {
+	      self.mem[a+i] = v[i]
+	   };
+	   Ok(())
+       })
+     }
+
      fn decode(&self, ir : u32) -> RiscvOpImac {
      	RiscvOpImac::decode(ir)
      }
