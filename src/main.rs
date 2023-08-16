@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused,non_snake_case)]
 use bitmatch::bitmatch;
 
 
@@ -39,15 +39,14 @@ macro_rules! fenum {
     #[derive(Debug)]
     enum $ty {
       $( $enum = $val, )*
-      Crap
+      Undef
     }
     impl From<u32> for $ty {
         fn from(x: u32) -> $ty {
-           //unsafe { std::mem::transmute(u8::try_from(x).unwrap() & 0b11111) }
 	   use $ty::*;
 	   match x {
 	      $($val => $enum,)*
-	      _ => Crap
+	      _ => Undef
 	   }
         }
     }
@@ -150,8 +149,8 @@ fenum!{ MulOp = {
 
 fenum!{ CsrOp  = {
    Ecall:0,Csrrw:1,Csrrs:2,
-   Csrrwi:3,Csrrsi:4,Csrrci:5,
-   Ebreak:6
+   Csrrwi:3,Csrrsi:5,Csrrci:6,
+   Ebreak:8
   }
 }
 
@@ -293,12 +292,46 @@ impl ArchState {
         extraflags : 0
      }
   }
+  fn readcsr(self, csrno: u32) -> u32 {
+    match csrno {
+      0x340 => self.mscratch,
+      0x305 => self.mtvec,
+      0x304 => self.mie,
+      0xC00 => self.get_cycle(),
+      0x344 => self.mip,
+      0x341 => self.mepc,
+      0x300 => self.mstatus,
+      0x342 => self.mcause,
+      0x343 => self.mtval,
+      0xf11 => 0xff0ff0ff, //mvendorid
+      0x301 => 0x40401101, //misa (XLEN=32, IMA+X)
+      _ => self.external_readcsr(csrno)
+    }
+  }
+  
+  fn writecsr(&mut self, csrno: u32, val: u32) {
+    match csrno {
+      0x340 => self.mscratch = val,
+      0x305 => self.mtvec = val,
+      0x304 => self.mie = val,
+      0x344 => self.mip = val,
+      0x341 => self.mepc = val,
+      0x300 => self.mstatus = val,
+      0x342 => self.mcause = val,
+      0x343 => self.mtval = val,
+      _ => self.external_writecsr(csrno,val)
+    }
+  }
+  // need to make these call functions either lambdas or via inherit
+  fn external_readcsr(self,csrno:u32) -> u32 { 0 }
+  fn external_writecsr(self,csrno:u32,val:u32) {}
+  fn get_cycle(self) -> u32 { 0 }
 }
 
 struct Sim {
    arch : ArchState,
    base : u32,
-   alignment : u32,
+   alignment_mask : u32,
    mem  : Vec<u8>
 }
 
@@ -322,17 +355,26 @@ enum TrapKind {
 enum ReadResult {
   // isz,op, dst, rs1a, rs1, rs2a, rs2
   AluOperands(u8,AluOp,Regno,Regno,u32,Regno,u32),
-  MulOperands(u8,MulOp,Regno,Regno,u32,Regno,u32),  
+  MulOperands(u8,MulOp,Regno,Regno,u32,Regno,u32),
+  CsrOperands(u8,CsrOp,Regno,Regno,u32,u32,u32),  
   LoadOperands(u8,LoadOp,Regno,Regno,u32,u32),
-  StoreOperands(u8,StoreOp,Regno,u32,Regno,u32,u32),  
+  StoreOperands(u8,StoreOp,Regno,u32,Regno,u32,u32),
+  BranchOperands(u8,BranchOp,Regno,u32,Regno,u32,u32,u32),  // rs1a,rs1,rs2a,rs2,imm,pc
+  JumpOperands(u8,Regno,u32,u32), // dst,imm,pc
+  JalrOperands(u8,Regno,Regno,u32,u32,u32), // dst,rs1,rs1v,imm,pc
   None
 }
 enum ExecuteResult {
-  Ok(u8,Regno,u32),
+  OkBr(u8,Regno,u32,bool,u32),
+  OkWb(u8,Regno,u32),
+  OkCsr(u8,Regno,u32,u32,u32), //isz,dst,csrval,csrno, csrval)
   Trap(TrapKind)
 }
+
+
 enum WriteBackResult {
   Ok(u32),
+  OkBr(u32,bool,u32),
   Trap(TrapKind)
 }
 
@@ -357,7 +399,7 @@ impl Sim {
      
      fn load_instruction(&self, ea: u32) -> Result<u32,TrapKind> {
        use TrapKind::*;
-       self.translate_addr(ea,self.alignment,PCalignmentFault,LoadInstructionFault).and_then(|a|  {
+       self.translate_addr(ea,self.alignment_mask,PCalignmentFault,LoadInstructionFault).and_then(|a|  {
 	         let input = &self.mem[a..a+4];
 		 Ok(u32::from_le_bytes(input.try_into().unwrap())) })
      }
@@ -399,7 +441,7 @@ impl Sim {
      	RiscvOpImac::decode(ir)
      }
 
-     fn readoperands(&self,  opcode : RiscvOpImac) -> ReadResult {
+     fn readoperands(&self,  opcode : RiscvOpImac, pc : u32) -> ReadResult {
        use RiscvOpImac::*;
        use ReadResult::*;
        match opcode {
@@ -407,146 +449,202 @@ impl Sim {
 	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
 	 AluI(isz,op,dst,rs1,imm) => 
 	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
+         Csr(isz,op,dst,rs1,csrno) => 
+	   CsrOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],csrno,self.arch.readcsr(csrno)),
          Mult(isz,op,dst,rs1,rs2) => 
 	   MulOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
 	 Load(isz,op,dst,rs1,imm) =>
 	   LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
 	 Store(isz,op,src,rs1,imm) =>
-	   StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),	 
+	   StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),
+	 Branch(isz,op,rs1,rs2,imm) =>
+	   BranchOperands(isz,op,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize],imm,pc),
+         Jal(isz,dst,imm) =>
+	   JumpOperands(isz,dst,imm,pc),
+         Jalr(isz,dst,rs1,imm) =>
+	   JalrOperands(isz,dst,rs1,self.arch.regs[rs1 as usize],imm,pc),
        	 _ => ReadResult::None
        }
      }
 
      fn execute(&mut self, rv : ReadResult) -> ExecuteResult {
-       use RiscvOpImac::*;
-       use ReadResult::*;
+       use Regno::*;
        use AluOp::*;
        use MulOp::*;       
        use LoadOp::*;
        use StoreOp::*;
-       use Regno::*;
+       use BranchOp::*;
+       use CsrOp::*;    
+       use RiscvOpImac::*;
+       use ReadResult::*;
+       use ExecuteResult::*;
+       use TrapKind::*;
+
        match rv {
 	 AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
 	    match op {
-		  Add  => ExecuteResult::Ok(isz,dst,rs1 + rs2),
-		  Sll  => ExecuteResult::Ok(isz,dst,rs1 << (rs2&0x1f)),
-		  Slt  => ExecuteResult::Ok(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
-		  Sltu => ExecuteResult::Ok(isz,dst,(rs1 < rs2) as u32),
-		  Xor  => ExecuteResult::Ok(isz,dst,rs1 ^ rs2),
-		  Srl  => ExecuteResult::Ok(isz,dst,rs1 >> (rs2 & 0x1F)),
-		  Ior  => ExecuteResult::Ok(isz,dst,rs1 | rs2),
-		  And  => ExecuteResult::Ok(isz,dst,rs1 & rs2),
-		  Sub  => ExecuteResult::Ok(isz,dst,rs1 - rs2),
-		  Sra  => ExecuteResult::Ok(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
-		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+		  Add  => OkWb(isz,dst,rs1 + rs2),
+		  Sll  => OkWb(isz,dst,rs1 << (rs2&0x1f)),
+		  Slt  => OkWb(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
+		  Sltu => OkWb(isz,dst,(rs1 < rs2) as u32),
+		  Xor  => OkWb(isz,dst,rs1 ^ rs2),
+		  Srl  => OkWb(isz,dst,rs1 >> (rs2 & 0x1F)),
+		  Ior  => OkWb(isz,dst,rs1 | rs2),
+		  And  => OkWb(isz,dst,rs1 & rs2),
+		  Sub  => OkWb(isz,dst,rs1 - rs2),
+		  Sra  => OkWb(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
+		  _ => Trap(IllegalInstruction)
 	    },
 	 MulOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
 	    match op {
-		  Mul  => ExecuteResult::Ok(isz,dst,rs1 * rs2),
-		  Mulh  => ExecuteResult::Ok(isz,dst,{
+		  Mul  => OkWb(isz,dst,rs1 * rs2),
+		  Mulh  => OkWb(isz,dst,{
 		     let a = i64::from(rs1 as i32);
 		     let b = i64::from(rs2 as i32);
 		     let r = (a * b)>>32;
 		     r as u32
 		  }),
-		  Mulsu  => ExecuteResult::Ok(isz,dst,{
+		  Mulsu  => OkWb(isz,dst,{
 		     let a = i64::from(rs1 as i32);
 		     let b = i64::from(rs2);
 		     let r = (a * b)>>32;
 		     r as u32
 		  }),
-		  Mulhu  => ExecuteResult::Ok(isz,dst,{
+		  Mulhu  => OkWb(isz,dst,{
 		     let a = i64::from(rs1);
 		     let b = i64::from(rs2);
 		     let r = (a * b)>>32;
 		     r as u32
 		  }),
-		  Div  => ExecuteResult::Ok(isz,dst,{
+		  Div  => OkWb(isz,dst,{
 		     if rs2 == 0 { 0xFFFF_FFFF  }
 		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
 		     else {
 		        ((rs1 as i32)/(rs2 as i32)) as u32
 		     }}),
-		  Divu =>  ExecuteResult::Ok(isz,dst,{
+		  Divu =>  OkWb(isz,dst,{
 		     if rs2 == 0 { 0xFFFF_FFFF  }
 		     else { rs1 / rs2 }}),
-		  Rem  => ExecuteResult::Ok(isz,dst,{
+		  Rem  => OkWb(isz,dst,{
 		     if rs2 == 0 { rs1  }
 		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
 		     else {
 		        ((rs1 as i32)%(rs2 as i32)) as u32
 		     }}),
-		  Remu =>  ExecuteResult::Ok(isz,dst,{
+		  Remu =>  OkWb(isz,dst,{
 		     if rs2 == 0 { rs1  }
 		     else { rs1 % rs2 }}),
-
-  		  _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+		  _ => Trap(IllegalInstruction)		     
            },
          LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
 	   match op {
 	         Lb  => match self.load_data(rs1+imm,1,true) {
-		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+		           Ok(res) => OkWb(isz,dst,res),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Lbu  => match self.load_data(rs1+imm,1,false) {
-		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+		           Ok(res) => OkWb(isz,dst,res),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Lh  => match self.load_data(rs1+imm,2,true) {
-		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+		           Ok(res) => OkWb(isz,dst,res),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Lhu  => match self.load_data(rs1+imm,2,false) {
-		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+		           Ok(res) => OkWb(isz,dst,res),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Lw  => match self.load_data(rs1+imm,4,false) {
-		           Ok(res) => ExecuteResult::Ok(isz,dst,res),
+		           Ok(res) => OkWb(isz,dst,res),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
-   		 _   => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+		 _ => Trap(IllegalInstruction)
 	   },
          StoreOperands(isz,op,srca,src,rs1a,rs1,imm) =>
 	   match op {
 	         Sb  => match self.store_data(rs1+imm,1,src) {
-		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
+		           Ok(res) => OkWb(isz,X0,0),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Sh  => match self.store_data(rs1+imm,2,src) {
-		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
+		           Ok(res) => OkWb(isz,X0,0),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
 	         Sw  => match self.store_data(rs1+imm,4,src) {
-		           Ok(res) => ExecuteResult::Ok(isz,X0,0),
+		           Ok(res) => OkWb(isz,X0,0),
 			   Err(t)  => ExecuteResult::Trap(t)
 		 },
-   		 _   => ExecuteResult::Trap(TrapKind::IllegalInstruction)
+		 _ => Trap(IllegalInstruction)		 
 	   },
-	 _ => ExecuteResult::Trap(TrapKind::IllegalInstruction)
-       }
+	 CsrOperands(isz,op,dst,rs1a,rs1,csrno,csrval) => 
+	   match op {
+	      Csrrw  => OkCsr(isz,dst,csrval,csrno, csrval),
+	      Csrrs  => OkCsr(isz,dst,csrval,csrno, csrval | rs1),
+	      Csrrc  => OkCsr(isz,dst,csrval,csrno, csrval & !rs1),
+	      Csrrwi => OkCsr(isz,dst,csrval,csrno, rs1a as u32),
+	      Csrrsi => OkCsr(isz,dst,csrval,csrno, csrval | rs1a as u32),
+	      Csrrci => OkCsr(isz,dst,csrval,csrno, csrval & !(rs1a as u32)),
+	      _ => Trap(IllegalInstruction)
+	 },
+	 
+         BranchOperands(isz,op,rs1a,rs1,rs2a,rs2,imm,pc) =>
+           match op {
+	         Beq => OkBr(isz,X0,0,rs1 == rs2, pc + imm),
+		 Bne => OkBr(isz,X0,0,rs1 != rs2, pc + imm),
+		 Blt => OkBr(isz,X0,0,(rs1 as i32) < (rs2 as i32), pc + imm),
+		 Bgt => OkBr(isz,X0,0,(rs1 as i32) > (rs2 as i32), pc + imm),
+		 Bltu => OkBr(isz,X0,0,rs1 < rs2, pc + imm),
+		 Bgeu => OkBr(isz,X0,0,rs1 > rs2, pc + imm),
+		 _ => Trap(IllegalInstruction)		 
+	   },
+	   
+	JumpOperands(isz,dst,raddr,pc) =>
+	   OkBr(isz,dst,pc+(isz as u32),true,pc+raddr),
+	   
+	JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
+	   let nextpc = rs1+raddr;
+	   if self.alignment_mask == 0 { OkBr(isz,dst,pc+(isz as u32),true,nextpc) }
+	   else                        { Trap(IllegalInstruction) }
+	},
+	 _ => Trap(IllegalInstruction)
+	}
    }
 
    fn writeback(&mut self, wb : ExecuteResult) -> WriteBackResult {
+     use ExecuteResult::*;
      match wb {
-       ExecuteResult::Ok(isz,dst,rval) => {
-       				   self.arch.regs[dst as usize] = rval;
-				   WriteBackResult::Ok(isz as u32)
+       OkWb(isz,dst,rval) => {
+       	   self.arch.regs[dst as usize] = rval;
+	   WriteBackResult::Ok(isz as u32)
+       },
+       OkBr(isz,dst,rval,taken,nextpc) => {
+       	   self.arch.regs[dst as usize] = rval;
+	   WriteBackResult::OkBr(isz as u32,taken,nextpc)
+       },
+       OkCsr(isz,dst,rval,csrno, csrval) => {
+       	   self.arch.regs[dst as usize] = rval;
+	   self.arch.writecsr(csrno,csrval);
+	   WriteBackResult::Ok(isz as u32)
        },
        ExecuteResult::Trap(t) => WriteBackResult::Trap(t)
      }
    }
 
    fn functional_step (&mut self) {
+      use WriteBackResult::*;
       let pc = self.arch.pc;
       let ir = self.load_instruction(pc).unwrap();
       let dstage  = self.decode(ir);
-      let rstage  = self.readoperands(dstage);
+      let rstage  = self.readoperands(dstage, pc);
       let estage  = self.execute(rstage);
       match self.writeback(estage) {
-         WriteBackResult::Ok(isz) => {
+         Ok(isz) => {
 	    self.arch.pc = pc + isz
 	 },
-	 WriteBackResult::Trap(kind) => {
+	 OkBr(isz,taken,nextpc) => {
+	    self.arch.pc = if taken { nextpc } else { pc + isz }
+	 },
+	 Trap(kind) => {
 	    println!("{:?}",kind)
 	 },
       }
@@ -609,7 +707,7 @@ fn main() {
      let mut s = Sim{
         arch: ArchState::reset(),
 	base: 0x8000_0000,
-	alignment: 1,
+	alignment_mask: 1,
         mem: vec![0_u8; 1024]
      };
 
