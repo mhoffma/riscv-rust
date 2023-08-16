@@ -148,9 +148,8 @@ fenum!{ MulOp = {
 
 
 fenum!{ CsrOp  = {
-   Ecall:0,Csrrw:1,Csrrs:2,
-   Csrrwi:3,Csrrsi:5,Csrrci:6,
-   Ebreak:8
+   Csrrw:1,Csrrs:2,Csrrc:3,
+   Csrrwi:5,Csrrsi:6,Csrrci:7
   }
 }
 
@@ -667,23 +666,25 @@ impl Sim {
       use WriteBackResult::*;
       let pc = self.arch.pc;
       let ir = self.load_instruction(pc).unwrap();
+
       let dstage  = self.decode(ir);
       let rstage  = self.readoperands(dstage, pc);
       let estage  = self.execute(rstage);
+      
+      let mut branch = false;
+      let mut trap   : TrapKind  = TrapKind::None;
+      let mut sz     : u32 = 0;
+      let mut nextpc : u32 = 0;
+
       match self.writeback(estage) {
-         Ok(isz) => {
-            self.arch.pc = pc + isz
-         },
-         OkBr(isz,taken,nextpc) => {
-            self.arch.pc = if taken { nextpc } else { pc + isz }
-         },
-	 Wfi(isz) => {
-            self.arch.pc = pc + isz
-	 },
+         Ok(isz)                 => { sz=isz },
+	 Wfi(isz)                => { sz=isz },
+         OkBr(isz,taken,newaddr) => { sz=isz; branch=taken; nextpc=newaddr },
          Trap(kind) => {
             println!("{:?}",kind)
          },
-      }
+      };
+      self.arch.pc = if branch { nextpc } else { pc + sz }
    }
 }
 
