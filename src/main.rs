@@ -43,11 +43,11 @@ macro_rules! fenum {
     }
     impl From<u32> for $ty {
         fn from(x: u32) -> $ty {
-	   use $ty::*;
-	   match x {
-	      $($val => $enum,)*
-	      _ => Undef
-	   }
+           use $ty::*;
+           match x {
+              $($val => $enum,)*
+              _ => Undef
+           }
         }
     }
   }
@@ -87,16 +87,16 @@ macro_rules! fimm {
       {
         let sz= $m-$l+1;
         let p = $l;
-	let mask=((1<<sz)-1);
-	let v = (($val&(mask<<$pos))>>$pos)<<p;
-	let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
-	let o =	if $sx && v!=0 { v | _m}
-		else { v };
+        let mask=((1<<sz)-1);
+        let v = (($val&(mask<<$pos))>>$pos)<<p;
+        let _m :u32 = ((!((1_u64<<($m+1))-1))) as u32;
+        let o = if $sx && v!=0 { v | _m}
+                else { v };
 
         if $dbg {
           println!("v={:08x} _m={:08x} o={:08x} {}:{} sz={} p={}",v,_m,o,$m,$l,sz,p)
         };
-	o
+        o
       }
     }
 }
@@ -105,11 +105,11 @@ macro_rules! imm {
     ($val:expr; $($k:ident)* [$($m:literal:$l:literal)*])    => {
        {
          let v=fimm!( $val ; $($k)* [$($m:$l)*]);
-	 if false {
+         if false {
             println!("imm --> {:032b} ==> {} {:032b}",$val,stringify!($($m:$l)|*),v);
-	    println!("{} == {}",$val,v);
-	 }
-	 v
+            println!("{} == {}",$val,v);
+         }
+         v
        }
     }
 }
@@ -120,7 +120,7 @@ fn f0() {
 }
 
 fenum!{Regno = { X0,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,
-	         X16,X17,X18,X19,X20,X21,X22,X23,X24,X25,X26,X27,X28,X29,X30,X31 } }
+                 X16,X17,X18,X19,X20,X21,X22,X23,X24,X25,X26,X27,X28,X29,X30,X31 } }
 
 impl Into<usize> for Regno {
     fn into(self) -> usize {
@@ -177,6 +177,7 @@ enum RiscvOpImac {
   AluI(u8,AluOp,Regno,Regno,u32),
   Alu(u8,AluOp,Regno,Regno,Regno),
   Csr(u8,CsrOp,Regno,Regno,u32),
+  Sys(u8,u32),  
   Mult(u8,MulOp,Regno,Regno,Regno),
   Amo(u8,AmoOp,Regno,Regno,Regno,bool,bool),
   None
@@ -194,49 +195,50 @@ impl RiscvOpImac {
       use CsrOp::*;    
       #[bitmatch]
       match inst {
-	  "uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(4,d.into(),   imm!(u; [31:12])),
-	  "uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(4,d.into(), imm!(u; [31:12])),
-	  "uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(4,d.into(),   imm!(u; [20:20 10:1 11:11 19:12])),
-	  "iiiiiii iiiii aaaaa 000 ddddd 11001 11" => Jalr(4,d.into(),a.into(),imm!(i;[11:0])),
-	  "uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei(4),
-	  "iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(4,f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
-	  "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
-	  "iiiiiii iiiii aaaaa fff ddddd 01000 11" => Store(4,f.into(),d.into(),a.into(), imm!(i;[11:0])),
-	  "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
-	  "iiiiiii iiiif aaaaa fff ddddd 11100 11" => Csr(4,f.into(),d.into(),a.into(),   imm!(i;[11:0])),
-	  "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(4,f.into(),d.into(),a.into(),b.into()),
-	  "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mult(4,f.into(),d.into(),a.into(),b.into()),
-	  "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(4,f.into(),d.into(),a.into(),b.into(),q==1,l==1),
+          "uuuuuuu uuuuu uuuuu uuu ddddd 01101 11" => Lui(4,d.into(),   imm!(u; [31:12])),
+          "uuuuuuu uuuuu uuuuu uuu ddddd 00101 11" => Auipc(4,d.into(), imm!(u; [31:12])),
+          "uuuuuuu uuuuu uuuuu uuu ddddd 11011 11" => Jal(4,d.into(),   imm!(u; [20:20 10:1 11:11 19:12])),
+          "iiiiiii iiiii aaaaa 000 ddddd 11001 11" => Jalr(4,d.into(),a.into(),imm!(i;[11:0])),
+          "uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei(4),
+          "iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(4,f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
+          "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
+          "iiiiiii iiiii aaaaa fff ddddd 01000 11" => Store(4,f.into(),d.into(),a.into(), imm!(i;[11:0])),
+          "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
+          "iiiiiii iiiii 00000 000 00000 11100 11" => Sys(4,                              imm!(i;[11:0])),
+          "iiiiiii iiiii aaaaa fff ddddd 11100 11" => Csr(4,f.into(),d.into(),a.into(),   imm!(i;[11:0])),
+          "0f00000 bbbbb aaaaa fff ddddd ooooo 11" => Alu(4,f.into(),d.into(),a.into(),b.into()),
+          "0000001 bbbbb aaaaa fff ddddd ooooo 11" => Mult(4,f.into(),d.into(),a.into(),b.into()),
+          "fffffql bbbbb aaaaa 010 ddddd 01011 11" => Amo(4,f.into(),d.into(),a.into(),b.into(),q==1,l==1),
 
-	  "000 i iiiii ii ddd 00"  => AluI(2,Add,(d+8).into(),X2,imm!(i;nzuimm[5:4 9:6 2:2 3:3])),   //   Add4spn(Regno,u32),
-	  "010 i iiaaa ii ddd 00"  => Load(2,Lw,(d+8).into(),(a+8).into(),imm!(i;uimm[5:3 2:2 6:6])),//	  Ldw(Regno8,u32),
-	  "000 0 00000 00 000 01"  => AluI(2,Add,X0,X0,0),					     //	  Addi(Regno,u32),
-	  "000 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i;nzimm[5:5 4:0])),	     //   Nop,
-	  "001 i iiiii ii iii 01"  => Jal(2,X0,imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),     //	  Jal(u32),
-	  "001 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i; sx[5:5 4:0])),	     //	  Addiw(Regno,u32),
-	  "010 i ddddd ii iii 01"  => Lui(2,d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5])),		     //	  Li(Regno,u32),
-	  "011 i 00010 ii iii 01"  => AluI(2,Add,X2,X2,imm!(i;nzimm[4:4 6:6 8:7 5:5])),              //	  Addi16sp(u32),
-	  "011 i ddddd ii iii 01"  => Lui(2,d.into(),imm!(i; upper nzimm[4:4 6:6 8:7 5:5])),	     //
-	  "100 i 00ddd ii iii 01"  => AluI(2,Srl,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //	  SrlI(Regno8,u32),
-	  "100 i 01ddd ii iii 01"  => AluI(2,Sra,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //	  SrlaI(Regno8,u32),
-	  "100 i 10ddd ii iii 01"  => AluI(2,And,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //	  AndI(Regno8,u32),
-	  "100 0 11ddd 00 bbb 01"  => Alu(2,Sub,(d+8).into(),(d+8).into(),b.into()),		     //	  Sub(Regno8,Regno8),
-	  "100 0 11ddd 01 bbb 01"  => Alu(2,Xor,(d+8).into(),(d+8).into(),b.into()),		     //	  Xor(Regno8,Regno8),
-	  "100 0 11ddd 10 bbb 01"  => Alu(2,Ior,(d+8).into(),(d+8).into(),b.into()),		     //	  Ior(Regno8,Regno8),
-	  "100 0 11ddd 11 bbb 01"  => Alu(2,And,(d+8).into(),(d+8).into(),b.into()),		     //	  And(Regno8,Regno8),
-	  "101 i iiiii ii iii 01"  => Jal(2,X0,imm!(i; sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),    //	  J(u32),
-	  "110 i iiaaa ii iii 01"  => Branch(2,Beq,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),//	  Beqz(Regno8,u32),
-	  "110 i iiaaa ii iii 01"  => Branch(2,Bne,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),//	  Bnez(Regno8,u32),
-	  "000 i ddddd ii iii 10"  => AluI(2,Sll,d.into(),d.into(),imm!(i; nzuimm[5:5 4:0])),	     //	  SllI(Regno,u32),
-	  "100 1 00000 00 000 10"  => Csr(2,Ebreak,X0,X0,0),					     //	  Ebreak,
-	  "100 0 00001 00 000 10"  => Jalr(2,X0,X1,0),			   			     //	  ret???? Jalr(Regno),	  
-	  "100 1 aaaaa 00 000 10"  => Jalr(2,X0,a.into(),0),					     //	  Jalr(Regno),
-	  "100 1 ddddd aa aaa 10"  => Alu(2,Add,d.into(),d.into(),a.into()),			     //	  Add(Regno,Regno),
-	  "100 0 ddddd aa aaa 10"  => Alu(2,Add,d.into(),a.into(),X0),				     //	  Mv(Regno,Regno),
-	  "010 i ddddd ii iii 10"  => Load(2,Lw,d.into(),X2,imm!(i; uimm[5:5 4:2 7:6])),	     //	  Ldwsp(Regno,u32),
-	  "110 i iiiii aa aaa 10"  => Store(2,Sw,a.into(),X2,imm!(i; uimm[5:2 7:6])),		     //	  Swsp(Regno,u32),
+          "000 i iiiii ii ddd 00"  => AluI(2,Add,(d+8).into(),X2,imm!(i;nzuimm[5:4 9:6 2:2 3:3])),   //   Add4spn(Regno,u32),
+          "010 i iiaaa ii ddd 00"  => Load(2,Lw,(d+8).into(),(a+8).into(),imm!(i;uimm[5:3 2:2 6:6])),//   Ldw(Regno8,u32),
+          "000 0 00000 00 000 01"  => AluI(2,Add,X0,X0,0),                                           //   Addi(Regno,u32),
+          "000 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i;nzimm[5:5 4:0])),          //   Nop,
+          "001 i iiiii ii iii 01"  => Jal(2,X0,imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),     //   Jal(u32),
+          "001 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i; sx[5:5 4:0])),            //   Addiw(Regno,u32),
+          "010 i ddddd ii iii 01"  => Lui(2,d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5])),               //   Li(Regno,u32),
+          "011 i 00010 ii iii 01"  => AluI(2,Add,X2,X2,imm!(i;nzimm[4:4 6:6 8:7 5:5])),              //   Addi16sp(u32),
+          "011 i ddddd ii iii 01"  => Lui(2,d.into(),imm!(i; upper nzimm[4:4 6:6 8:7 5:5])),         //
+          "100 i 00ddd ii iii 01"  => AluI(2,Srl,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //   SrlI(Regno8,u32),
+          "100 i 01ddd ii iii 01"  => AluI(2,Sra,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //   SrlaI(Regno8,u32),
+          "100 i 10ddd ii iii 01"  => AluI(2,And,(d+8).into(),(d+8).into(),imm!(i;nzimm[16:12])),    //   AndI(Regno8,u32),
+          "100 0 11ddd 00 bbb 01"  => Alu(2,Sub,(d+8).into(),(d+8).into(),b.into()),                 //   Sub(Regno8,Regno8),
+          "100 0 11ddd 01 bbb 01"  => Alu(2,Xor,(d+8).into(),(d+8).into(),b.into()),                 //   Xor(Regno8,Regno8),
+          "100 0 11ddd 10 bbb 01"  => Alu(2,Ior,(d+8).into(),(d+8).into(),b.into()),                 //   Ior(Regno8,Regno8),
+          "100 0 11ddd 11 bbb 01"  => Alu(2,And,(d+8).into(),(d+8).into(),b.into()),                 //   And(Regno8,Regno8),
+          "101 i iiiii ii iii 01"  => Jal(2,X0,imm!(i; sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),    //   J(u32),
+          "110 i iiaaa ii iii 01"  => Branch(2,Beq,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),//   Beqz(Regno8,u32),
+          "110 i iiaaa ii iii 01"  => Branch(2,Bne,X0,(a+8).into(),imm!(i; sx[8:8 4:3 7:6 2:1 5:5])),//   Bnez(Regno8,u32),
+          "000 i ddddd ii iii 10"  => AluI(2,Sll,d.into(),d.into(),imm!(i; nzuimm[5:5 4:0])),        //   SllI(Regno,u32),
+          "100 1 00000 00 000 10"  => Sys(2,1),                                                      //   Ebreak,
+          "100 0 00001 00 000 10"  => Jalr(2,X0,X1,0),                                               //   ret???? Jalr(Regno),    
+          "100 1 aaaaa 00 000 10"  => Jalr(2,X0,a.into(),0),                                         //   Jalr(Regno),
+          "100 1 ddddd aa aaa 10"  => Alu(2,Add,d.into(),d.into(),a.into()),                         //   Add(Regno,Regno),
+          "100 0 ddddd aa aaa 10"  => Alu(2,Add,d.into(),a.into(),X0),                               //   Mv(Regno,Regno),
+          "010 i ddddd ii iii 10"  => Load(2,Lw,d.into(),X2,imm!(i; uimm[5:5 4:2 7:6])),             //   Ldwsp(Regno,u32),
+          "110 i iiiii aa aaa 10"  => Store(2,Sw,a.into(),X2,imm!(i; uimm[5:2 7:6])),                //   Swsp(Regno,u32),
 
-	   _ => RiscvOpImac::None
+           _ => RiscvOpImac::None
       }
   }
 }
@@ -274,7 +276,7 @@ impl ArchState {
   fn reset() -> Self {
      ArchState {
         regs : [0; 32],
-	pc : 0,
+        pc : 0,
         mstatus : 0,
         cyclel : 0,
         cycleh : 0,
@@ -344,7 +346,8 @@ enum TrapKind {
   LoadDataFault = 5,
   AMOmissalignedFault = 6,
   StoreAMOFault = 7,
-  EnvCall = 8,
+  EnvCallU = 8,
+  EnvCallM = 11,
   InstructionPageFault = 12,
   LoadPageFault = 13,
   StoreAMOPageFault = 15,
@@ -362,12 +365,15 @@ enum ReadResult {
   BranchOperands(u8,BranchOp,Regno,u32,Regno,u32,u32,u32),  // rs1a,rs1,rs2a,rs2,imm,pc
   JumpOperands(u8,Regno,u32,u32), // dst,imm,pc
   JalrOperands(u8,Regno,Regno,u32,u32,u32), // dst,rs1,rs1v,imm,pc
+  SysOperands(u8,u32),
   None
 }
 enum ExecuteResult {
+  OkNoop(u8),
   OkBr(u8,Regno,u32,bool,u32),
   OkWb(u8,Regno,u32),
   OkCsr(u8,Regno,u32,u32,u32), //isz,dst,csrval,csrno, csrval)
+  Wfi(u8),
   Trap(TrapKind)
 }
 
@@ -375,6 +381,7 @@ enum ExecuteResult {
 enum WriteBackResult {
   Ok(u32),
   OkBr(u32,bool,u32),
+  Wfi(u32),  
   Trap(TrapKind)
 }
 
@@ -386,59 +393,59 @@ impl Sim {
        if ea&amask != 0 {
           Err(afault)
        } else if ea < self.base {
-       	  Err(lfault) 
+          Err(lfault) 
        } else {
           let a = u32::wrapping_sub(ea, self.base);
           if a > self.base {
-       	     Err(lfault)
-	  } else {
-	     Ok(a as usize)
-	  }
+             Err(lfault)
+          } else {
+             Ok(a as usize)
+          }
        }
      }
      
      fn load_instruction(&self, ea: u32) -> Result<u32,TrapKind> {
        use TrapKind::*;
        self.translate_addr(ea,self.alignment_mask,PCalignmentFault,LoadInstructionFault).and_then(|a|  {
-	         let input = &self.mem[a..a+4];
-		 Ok(u32::from_le_bytes(input.try_into().unwrap())) })
+                 let input = &self.mem[a..a+4];
+                 Ok(u32::from_le_bytes(input.try_into().unwrap())) })
      }
      
      fn load_data(&self, ea :u32, sz : u32, signed : bool) -> Result<u32,TrapKind> {
        use TrapKind::*;     
        self.translate_addr(ea,sz-1,LoadDataFault,LoadDataFault).and_then(|a| {
-	   match sz {
-	     1 => {
-		    let input = &self.mem[a..a+1];
-		    Ok(if signed { ((input[0] as i8) as i32) as u32 }
-		       else      { input[0] as u32 })
-		  },
-	     2 => {
-		    let input = &self.mem[a..a+2];	 
-		    Ok(if signed { (i16::from_le_bytes(input.try_into().unwrap()) as i32) as u32 }
-		       else      { i16::from_le_bytes(input.try_into().unwrap()) as u32 })
-		  },
-	     4 => {
-		    let input = &self.mem[a..a+4];
-		    Ok(u32::from_le_bytes(input.try_into().unwrap()))
-		  },
-	     _ => Err(LoadDataFault)
-	   } })
+           match sz {
+             1 => {
+                    let input = &self.mem[a..a+1];
+                    Ok(if signed { ((input[0] as i8) as i32) as u32 }
+                       else      { input[0] as u32 })
+                  },
+             2 => {
+                    let input = &self.mem[a..a+2];       
+                    Ok(if signed { (i16::from_le_bytes(input.try_into().unwrap()) as i32) as u32 }
+                       else      { i16::from_le_bytes(input.try_into().unwrap()) as u32 })
+                  },
+             4 => {
+                    let input = &self.mem[a..a+4];
+                    Ok(u32::from_le_bytes(input.try_into().unwrap()))
+                  },
+             _ => Err(LoadDataFault)
+           } })
      }
 
      fn store_data(&mut self, ea :u32, sz : u32, value: u32) -> Result<(),TrapKind> {
        use TrapKind::*;
        self.translate_addr(ea,sz-1,AMOmissalignedFault,StoreAMOPageFault).and_then(|a| {
            let v = u32::to_le_bytes(value);
-	   for i in (0..(sz as usize)) {
-	      self.mem[a+i] = v[i]
-	   };
-	   Ok(())
+           for i in (0..(sz as usize)) {
+              self.mem[a+i] = v[i]
+           };
+           Ok(())
        })
      }
 
      fn decode(&self, ir : u32) -> RiscvOpImac {
-     	RiscvOpImac::decode(ir)
+        RiscvOpImac::decode(ir)
      }
 
      fn readoperands(&self,  opcode : RiscvOpImac, pc : u32) -> ReadResult {
@@ -446,24 +453,26 @@ impl Sim {
        use ReadResult::*;
        match opcode {
          Alu(isz,op,dst,rs1,rs2) => 
-	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
-	 AluI(isz,op,dst,rs1,imm) => 
-	   AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
+           AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
+         AluI(isz,op,dst,rs1,imm) => 
+           AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
          Csr(isz,op,dst,rs1,csrno) => 
-	   CsrOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],csrno,self.arch.readcsr(csrno)),
+           CsrOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],csrno,self.arch.readcsr(csrno)),
+	 Sys(isz,csrno) =>
+	   SysOperands(isz,csrno),
          Mult(isz,op,dst,rs1,rs2) => 
-	   MulOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
-	 Load(isz,op,dst,rs1,imm) =>
-	   LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),	 
-	 Store(isz,op,src,rs1,imm) =>
-	   StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),
-	 Branch(isz,op,rs1,rs2,imm) =>
-	   BranchOperands(isz,op,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize],imm,pc),
+           MulOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
+         Load(isz,op,dst,rs1,imm) =>
+           LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),        
+         Store(isz,op,src,rs1,imm) =>
+           StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),
+         Branch(isz,op,rs1,rs2,imm) =>
+           BranchOperands(isz,op,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize],imm,pc),
          Jal(isz,dst,imm) =>
-	   JumpOperands(isz,dst,imm,pc),
+           JumpOperands(isz,dst,imm,pc),
          Jalr(isz,dst,rs1,imm) =>
-	   JalrOperands(isz,dst,rs1,self.arch.regs[rs1 as usize],imm,pc),
-       	 _ => ReadResult::None
+           JalrOperands(isz,dst,rs1,self.arch.regs[rs1 as usize],imm,pc),
+         _ => ReadResult::None
        }
      }
 
@@ -481,151 +490,175 @@ impl Sim {
        use TrapKind::*;
 
        match rv {
-	 AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
-	    match op {
-		  Add  => OkWb(isz,dst,rs1 + rs2),
-		  Sll  => OkWb(isz,dst,rs1 << (rs2&0x1f)),
-		  Slt  => OkWb(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
-		  Sltu => OkWb(isz,dst,(rs1 < rs2) as u32),
-		  Xor  => OkWb(isz,dst,rs1 ^ rs2),
-		  Srl  => OkWb(isz,dst,rs1 >> (rs2 & 0x1F)),
-		  Ior  => OkWb(isz,dst,rs1 | rs2),
-		  And  => OkWb(isz,dst,rs1 & rs2),
-		  Sub  => OkWb(isz,dst,rs1 - rs2),
-		  Sra  => OkWb(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
-		  _ => Trap(IllegalInstruction)
-	    },
-	 MulOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
-	    match op {
-		  Mul  => OkWb(isz,dst,rs1 * rs2),
-		  Mulh  => OkWb(isz,dst,{
-		     let a = i64::from(rs1 as i32);
-		     let b = i64::from(rs2 as i32);
-		     let r = (a * b)>>32;
-		     r as u32
-		  }),
-		  Mulsu  => OkWb(isz,dst,{
-		     let a = i64::from(rs1 as i32);
-		     let b = i64::from(rs2);
-		     let r = (a * b)>>32;
-		     r as u32
-		  }),
-		  Mulhu  => OkWb(isz,dst,{
-		     let a = i64::from(rs1);
-		     let b = i64::from(rs2);
-		     let r = (a * b)>>32;
-		     r as u32
-		  }),
-		  Div  => OkWb(isz,dst,{
-		     if rs2 == 0 { 0xFFFF_FFFF  }
-		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
-		     else {
-		        ((rs1 as i32)/(rs2 as i32)) as u32
-		     }}),
-		  Divu =>  OkWb(isz,dst,{
-		     if rs2 == 0 { 0xFFFF_FFFF  }
-		     else { rs1 / rs2 }}),
-		  Rem  => OkWb(isz,dst,{
-		     if rs2 == 0 { rs1  }
-		     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
-		     else {
-		        ((rs1 as i32)%(rs2 as i32)) as u32
-		     }}),
-		  Remu =>  OkWb(isz,dst,{
-		     if rs2 == 0 { rs1  }
-		     else { rs1 % rs2 }}),
-		  _ => Trap(IllegalInstruction)		     
+         AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
+            match op {
+                  Add  => OkWb(isz,dst,rs1 + rs2),
+                  Sll  => OkWb(isz,dst,rs1 << (rs2&0x1f)),
+                  Slt  => OkWb(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
+                  Sltu => OkWb(isz,dst,(rs1 < rs2) as u32),
+                  Xor  => OkWb(isz,dst,rs1 ^ rs2),
+                  Srl  => OkWb(isz,dst,rs1 >> (rs2 & 0x1F)),
+                  Ior  => OkWb(isz,dst,rs1 | rs2),
+                  And  => OkWb(isz,dst,rs1 & rs2),
+                  Sub  => OkWb(isz,dst,rs1 - rs2),
+                  Sra  => OkWb(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
+                  _ => Trap(IllegalInstruction)
+            },
+         MulOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
+            match op {
+                  Mul  => OkWb(isz,dst,rs1 * rs2),
+                  Mulh  => OkWb(isz,dst,{
+                     let a = i64::from(rs1 as i32);
+                     let b = i64::from(rs2 as i32);
+                     let r = (a * b)>>32;
+                     r as u32
+                  }),
+                  Mulsu  => OkWb(isz,dst,{
+                     let a = i64::from(rs1 as i32);
+                     let b = i64::from(rs2);
+                     let r = (a * b)>>32;
+                     r as u32
+                  }),
+                  Mulhu  => OkWb(isz,dst,{
+                     let a = i64::from(rs1);
+                     let b = i64::from(rs2);
+                     let r = (a * b)>>32;
+                     r as u32
+                  }),
+                  Div  => OkWb(isz,dst,{
+                     if rs2 == 0 { 0xFFFF_FFFF  }
+                     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
+                     else {
+                        ((rs1 as i32)/(rs2 as i32)) as u32
+                     }}),
+                  Divu =>  OkWb(isz,dst,{
+                     if rs2 == 0 { 0xFFFF_FFFF  }
+                     else { rs1 / rs2 }}),
+                  Rem  => OkWb(isz,dst,{
+                     if rs2 == 0 { rs1  }
+                     else if rs1 == 0x8000_0000 && rs2 == 0xFFFF_FFFF { rs1 }
+                     else {
+                        ((rs1 as i32)%(rs2 as i32)) as u32
+                     }}),
+                  Remu =>  OkWb(isz,dst,{
+                     if rs2 == 0 { rs1  }
+                     else { rs1 % rs2 }}),
+                  _ => Trap(IllegalInstruction)              
            },
          LoadOperands(isz,op,dst,rs1a,rs1,imm) =>
-	   match op {
-	         Lb  => match self.load_data(rs1+imm,1,true) {
-		           Ok(res) => OkWb(isz,dst,res),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Lbu  => match self.load_data(rs1+imm,1,false) {
-		           Ok(res) => OkWb(isz,dst,res),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Lh  => match self.load_data(rs1+imm,2,true) {
-		           Ok(res) => OkWb(isz,dst,res),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Lhu  => match self.load_data(rs1+imm,2,false) {
-		           Ok(res) => OkWb(isz,dst,res),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Lw  => match self.load_data(rs1+imm,4,false) {
-		           Ok(res) => OkWb(isz,dst,res),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-		 _ => Trap(IllegalInstruction)
-	   },
+           match op {
+                 Lb  => match self.load_data(rs1+imm,1,true) {
+                           Ok(res) => OkWb(isz,dst,res),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Lbu  => match self.load_data(rs1+imm,1,false) {
+                           Ok(res) => OkWb(isz,dst,res),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Lh  => match self.load_data(rs1+imm,2,true) {
+                           Ok(res) => OkWb(isz,dst,res),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Lhu  => match self.load_data(rs1+imm,2,false) {
+                           Ok(res) => OkWb(isz,dst,res),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Lw  => match self.load_data(rs1+imm,4,false) {
+                           Ok(res) => OkWb(isz,dst,res),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 _ => Trap(IllegalInstruction)
+           },
          StoreOperands(isz,op,srca,src,rs1a,rs1,imm) =>
-	   match op {
-	         Sb  => match self.store_data(rs1+imm,1,src) {
-		           Ok(res) => OkWb(isz,X0,0),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Sh  => match self.store_data(rs1+imm,2,src) {
-		           Ok(res) => OkWb(isz,X0,0),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-	         Sw  => match self.store_data(rs1+imm,4,src) {
-		           Ok(res) => OkWb(isz,X0,0),
-			   Err(t)  => ExecuteResult::Trap(t)
-		 },
-		 _ => Trap(IllegalInstruction)		 
-	   },
-	 CsrOperands(isz,op,dst,rs1a,rs1,csrno,csrval) => 
-	   match op {
-	      Csrrw  => OkCsr(isz,dst,csrval,csrno, csrval),
-	      Csrrs  => OkCsr(isz,dst,csrval,csrno, csrval | rs1),
-	      Csrrc  => OkCsr(isz,dst,csrval,csrno, csrval & !rs1),
-	      Csrrwi => OkCsr(isz,dst,csrval,csrno, rs1a as u32),
-	      Csrrsi => OkCsr(isz,dst,csrval,csrno, csrval | rs1a as u32),
-	      Csrrci => OkCsr(isz,dst,csrval,csrno, csrval & !(rs1a as u32)),
-	      _ => Trap(IllegalInstruction)
-	 },
-	 
+           match op {
+                 Sb  => match self.store_data(rs1+imm,1,src) {
+                           Ok(res) => OkWb(isz,X0,0),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Sh  => match self.store_data(rs1+imm,2,src) {
+                           Ok(res) => OkWb(isz,X0,0),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 Sw  => match self.store_data(rs1+imm,4,src) {
+                           Ok(res) => OkWb(isz,X0,0),
+                           Err(t)  => ExecuteResult::Trap(t)
+                 },
+                 _ => Trap(IllegalInstruction)           
+           },    
          BranchOperands(isz,op,rs1a,rs1,rs2a,rs2,imm,pc) =>
            match op {
-	         Beq => OkBr(isz,X0,0,rs1 == rs2, pc + imm),
-		 Bne => OkBr(isz,X0,0,rs1 != rs2, pc + imm),
-		 Blt => OkBr(isz,X0,0,(rs1 as i32) < (rs2 as i32), pc + imm),
-		 Bgt => OkBr(isz,X0,0,(rs1 as i32) > (rs2 as i32), pc + imm),
-		 Bltu => OkBr(isz,X0,0,rs1 < rs2, pc + imm),
-		 Bgeu => OkBr(isz,X0,0,rs1 > rs2, pc + imm),
-		 _ => Trap(IllegalInstruction)		 
-	   },
-	   
-	JumpOperands(isz,dst,raddr,pc) =>
-	   OkBr(isz,dst,pc+(isz as u32),true,pc+raddr),
-	   
-	JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
-	   let nextpc = rs1+raddr;
-	   if self.alignment_mask == 0 { OkBr(isz,dst,pc+(isz as u32),true,nextpc) }
-	   else                        { Trap(IllegalInstruction) }
-	},
-	 _ => Trap(IllegalInstruction)
-	}
+                 Beq => OkBr(isz,X0,0,rs1 == rs2, pc + imm),
+                 Bne => OkBr(isz,X0,0,rs1 != rs2, pc + imm),
+                 Blt => OkBr(isz,X0,0,(rs1 as i32) < (rs2 as i32), pc + imm),
+                 Bgt => OkBr(isz,X0,0,(rs1 as i32) > (rs2 as i32), pc + imm),
+                 Bltu => OkBr(isz,X0,0,rs1 < rs2, pc + imm),
+                 Bgeu => OkBr(isz,X0,0,rs1 > rs2, pc + imm),
+                 _ => Trap(IllegalInstruction)           
+           },
+           
+        JumpOperands(isz,dst,raddr,pc) =>
+           OkBr(isz,dst,pc+(isz as u32),true,pc+raddr),
+           
+        JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
+           let nextpc = rs1+raddr;
+           if self.alignment_mask == 0 { OkBr(isz,dst,pc+(isz as u32),true,nextpc) }
+           else                        { Trap(IllegalInstruction) }
+        },
+        CsrOperands(isz,op,dst,rs1a,rs1,csrno,csrval) => 
+           match op {
+              Csrrw  => OkCsr(isz,dst,csrval,csrno, csrval),
+              Csrrs  => OkCsr(isz,dst,csrval,csrno, csrval | rs1),
+              Csrrc  => OkCsr(isz,dst,csrval,csrno, csrval & !rs1),
+              Csrrwi => OkCsr(isz,dst,csrval,csrno, rs1a as u32),
+              Csrrsi => OkCsr(isz,dst,csrval,csrno, csrval | rs1a as u32),
+              Csrrci => OkCsr(isz,dst,csrval,csrno, csrval & !(rs1a as u32)),
+              _ => Trap(IllegalInstruction)
+        },
+        SysOperands(isz,csrno) => {
+	   match csrno {
+	     0x105 => { //self.arch.wfi()
+	                self.arch.mstatus    = self.arch.mstatus | 8;
+			self.arch.extraflags = self.arch.extraflags | 4;
+			Wfi(isz)
+	     },
+	     2     => { // self.arch.mret()
+                        //https://raw.githubusercontent.com/riscv/virtual-memory/main/specs/663-Svpbmt.pdf
+                        //Table 7.6. MRET then in mstatus/mstatush sets MPV=0, MPP=0, MIE=MPIE, and MPIE=1. La
+                        // Should also update mstatus to reflect correct mode.
+                        let mstatus    = self.arch.mstatus;
+			let extraflags = self.arch.extraflags;
+			self.arch.mstatus = (( mstatus & 0x80) >> 4) | ((extraflags&3) << 11) | 0x80;
+			self.arch.extraflags = (extraflags & !3) | ((mstatus >> 11) & 3) ;
+			OkBr(isz,X0,0,true,self.arch.mepc)
+	     },
+	     0     => Trap(if (self.arch.extraflags&3)!=0 { EnvCallM } else { EnvCallU }),
+	     1     => Trap(Breakpoint),
+             _     => OkNoop(isz)
+	   }
+        },
+
+         _ => Trap(IllegalInstruction)
+        }
    }
 
    fn writeback(&mut self, wb : ExecuteResult) -> WriteBackResult {
      use ExecuteResult::*;
      match wb {
        OkWb(isz,dst,rval) => {
-       	   self.arch.regs[dst as usize] = rval;
-	   WriteBackResult::Ok(isz as u32)
+           self.arch.regs[dst as usize] = rval;
+           WriteBackResult::Ok(isz as u32)
        },
        OkBr(isz,dst,rval,taken,nextpc) => {
-       	   self.arch.regs[dst as usize] = rval;
-	   WriteBackResult::OkBr(isz as u32,taken,nextpc)
+           self.arch.regs[dst as usize] = rval;
+           WriteBackResult::OkBr(isz as u32,taken,nextpc)
        },
        OkCsr(isz,dst,rval,csrno, csrval) => {
-       	   self.arch.regs[dst as usize] = rval;
-	   self.arch.writecsr(csrno,csrval);
-	   WriteBackResult::Ok(isz as u32)
+           self.arch.regs[dst as usize] = rval;
+           self.arch.writecsr(csrno,csrval);
+           WriteBackResult::Ok(isz as u32)
        },
+       OkNoop(isz) => WriteBackResult::Ok(isz as u32),
+       Wfi(isz)    => WriteBackResult::Ok(isz as u32),
        ExecuteResult::Trap(t) => WriteBackResult::Trap(t)
      }
    }
@@ -639,14 +672,17 @@ impl Sim {
       let estage  = self.execute(rstage);
       match self.writeback(estage) {
          Ok(isz) => {
-	    self.arch.pc = pc + isz
+            self.arch.pc = pc + isz
+         },
+         OkBr(isz,taken,nextpc) => {
+            self.arch.pc = if taken { nextpc } else { pc + isz }
+         },
+	 Wfi(isz) => {
+            self.arch.pc = pc + isz
 	 },
-	 OkBr(isz,taken,nextpc) => {
-	    self.arch.pc = if taken { nextpc } else { pc + isz }
-	 },
-	 Trap(kind) => {
-	    println!("{:?}",kind)
-	 },
+         Trap(kind) => {
+            println!("{:?}",kind)
+         },
       }
    }
 }
@@ -657,15 +693,15 @@ macro_rules! check {
   ( $($opc:literal => $note:literal );* ) => {
      $(
         {
-	 let res   = RiscvOpImac::decode($opc);
-	 let sres : String = strip(format!("{:?}",res));
-	 let mut n = $note.split("//");
-	 match n.next() {
-	   Some(t) =>
+         let res   = RiscvOpImac::decode($opc);
+         let sres : String = strip(format!("{:?}",res));
+         let mut n = $note.split("//");
+         match n.next() {
+           Some(t) =>
               println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note),
-	   None => {}
-	 }
-	}
+           None => {}
+         }
+        }
       );*
   }
 }
@@ -682,43 +718,43 @@ fn main() {
      0x13641073 => "Csr(4,Csrrw, X0, X8, 155)" ;
      0x03245433 => "Mul(4,Divu, X8, X8, X18)";
      0x12450513 => "AluI(4,Add, X10, X10, 292)";
-     0x12048513 => "AluI(4,Add,X10,X9,288) //80000046:	12048513          	addi	a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
+     0x12048513 => "AluI(4,Add,X10,X9,288) //80000046:  12048513                addi    a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
      0x0001     => "AluI(2,Add,X0,X0,0)";
      0x004C     => "AluI(2,Add,X11,X2,4)";
 
-     0x00002117 => "Auipc(4,X2,8192)       // 80000000:	00002117          	auipc	sp,0x2";
-     0x1e010113 => "AluI(4,Add,X2,X2,480)  // 80000004:	1e010113          	addi	sp,sp,480 # 800021e0 <_sstack>";
-     0x1141     => "AluI(2,Add,X2,X2,48)   // 80000008:	1141                	addi	sp,sp,-16";
-     0xc606     => "Store(2,Sw,X1,X2,12)   // 8000000a:	c606                	sw	ra,12(sp)";
-     0x02e000ef => "Jal(4,X1,46)           // 8000000c:	02e000ef          	jal	ra,8000003a <main>";
-     0x3fc9     => "Jal(2,X1,46)           // 80000060:	3fc9                	jal	80000032 <lprint>";
-     0x3779     => "Jal(2,X1,-120)         // 80000082:	3779                	jal	80000010 <asm_demo_func>";
-     0x1141     => "AluI(2,Add,X2,X2,-16)  // 80000010:	1141                	addi	sp,sp,-16";
-     0xc616     => "Store(2,Sw,X5,X2,12)   // 80000012:	c616                	sw	t0,12(sp)";
-     0x00000297 => "Auipc(4,X5,0)          // 80000014:	00000297          	auipc	t0,0x0";
-     0x1ac28293 => "AluI(4,Add,X5,X5,428)  // 80000018:	1ac28293          	addi	t0,t0,428 # 800001c0 <asm_label>";
-     0x13829073 => "Csr(4,Csrrw,X0,X5,312) // 8000001c:	13829073          	csrw	0x138,t0";
-     0x42b2     => "Load(2,Lw,X5,X2,12)    // 80000020:	42b2                	lw	t0,12(sp)";
-     0x0141     => "AluI(2,Add,X2,X2,16)   // 80000022:	0141                	addi	sp,sp,16";
-     0x8082     => "Jalr(2,X1,0)           // 80000024:	8082                	ret"
+     0x00002117 => "Auipc(4,X2,8192)       // 80000000: 00002117                auipc   sp,0x2";
+     0x1e010113 => "AluI(4,Add,X2,X2,480)  // 80000004: 1e010113                addi    sp,sp,480 # 800021e0 <_sstack>";
+     0x1141     => "AluI(2,Add,X2,X2,48)   // 80000008: 1141                    addi    sp,sp,-16";
+     0xc606     => "Store(2,Sw,X1,X2,12)   // 8000000a: c606                    sw      ra,12(sp)";
+     0x02e000ef => "Jal(4,X1,46)           // 8000000c: 02e000ef                jal     ra,8000003a <main>";
+     0x3fc9     => "Jal(2,X1,46)           // 80000060: 3fc9                    jal     80000032 <lprint>";
+     0x3779     => "Jal(2,X1,-120)         // 80000082: 3779                    jal     80000010 <asm_demo_func>";
+     0x1141     => "AluI(2,Add,X2,X2,-16)  // 80000010: 1141                    addi    sp,sp,-16";
+     0xc616     => "Store(2,Sw,X5,X2,12)   // 80000012: c616                    sw      t0,12(sp)";
+     0x00000297 => "Auipc(4,X5,0)          // 80000014: 00000297                auipc   t0,0x0";
+     0x1ac28293 => "AluI(4,Add,X5,X5,428)  // 80000018: 1ac28293                addi    t0,t0,428 # 800001c0 <asm_label>";
+     0x13829073 => "Csr(4,Csrrw,X0,X5,312) // 8000001c: 13829073                csrw    0x138,t0";
+     0x42b2     => "Load(2,Lw,X5,X2,12)    // 80000020: 42b2                    lw      t0,12(sp)";
+     0x0141     => "AluI(2,Add,X2,X2,16)   // 80000022: 0141                    addi    sp,sp,16";
+     0x8082     => "Jalr(2,X1,0)           // 80000024: 8082                    ret"
 
    }
 
      let mut s = Sim{
         arch: ArchState::reset(),
-	base: 0x8000_0000,
-	alignment_mask: 1,
+        base: 0x8000_0000,
+        alignment_mask: 1,
         mem: vec![0_u8; 1024]
      };
 
      for i in 0..10 {
           s.mem[i*2+0]=0x41;
-     	  s.mem[i*2+1]=0x01;
+          s.mem[i*2+1]=0x01;
      }
      s.arch.pc=0x8000_0000;
 
      for i in 0..10 {
         s.functional_step();
-	println!("{:?}",s.arch);
+        println!("{:?}",s.arch);
      }
 }
