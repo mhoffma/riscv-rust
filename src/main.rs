@@ -365,6 +365,7 @@ enum ReadResult {
   JumpOperands(u8,Regno,u32,u32), // dst,imm,pc
   JalrOperands(u8,Regno,Regno,u32,u32,u32), // dst,rs1,rs1v,imm,pc
   SysOperands(u8,u32),
+  AmoOperands(u8,AmoOp,Regno,Regno,u32,Regno,u32),
   None
 }
 enum ExecuteResult {
@@ -471,6 +472,8 @@ impl Sim {
            JumpOperands(isz,dst,imm,pc),
          Jalr(isz,dst,rs1,imm) =>
            JalrOperands(isz,dst,rs1,self.arch.regs[rs1 as usize],imm,pc),
+	 Amo(isz,op,dst,rs1,rs2,q,l) =>
+	   AmoOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
          _ => ReadResult::None
        }
      }
@@ -482,7 +485,8 @@ impl Sim {
        use LoadOp::*;
        use StoreOp::*;
        use BranchOp::*;
-       use CsrOp::*;    
+       use CsrOp::*;
+       use AmoOp::*;           
        use RiscvOpImac::*;
        use ReadResult::*;
        use ExecuteResult::*;
@@ -635,7 +639,37 @@ impl Sim {
              _     => OkNoop(isz)
 	   }
         },
-
+	AmoOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) => {
+	  match self.load_data(rs1,4,false) {
+            Ok(mut rval) => {	   
+		  let mut dowrite = true;
+		  let mut output  = rs2;
+		  let mut illegal = false;
+		  match op {
+		     Lrw => { self.arch.extraflags = (self.arch.extraflags & 7) | (rs1<<3); dowrite=false;  }
+		     Scw => { rval = ((self.arch.extraflags >> 3) != (rs1 & 0x1fff_ffff)) as u32;    dowrite=rval==0; } // reservation slot
+		     Amoswapw  => { },
+		     Amoaddw   => { output = rs2 + rval; },
+		     Amoxorw   => { output = rs2 ^ rval; },
+		     Amoandw   => { output = rs2 & rval; },
+		     Amoorw    => { output = rs2 | rval; },
+		     Amominw   => { output = if (rs2 as i32) < (rval as i32) { rs2 } else { rval } },
+		     Amomaxw   => { output = if (rs2 as i32) > (rval as i32) { rs2 } else { rval } },
+		     Amominuw  => { output = if rs2 < rval { rs2 } else { rval } },
+		     Amomaxuw  => { output = if rs2 > rval { rs2 } else { rval } },
+		     _         => { illegal = true }
+		  }
+		  if illegal { Trap(IllegalInstruction) }
+		  else if dowrite {
+		     match self.store_data(rs1,4,output) {
+			 Ok(res) => OkWb(isz,dst,rval),
+			 Err(t)  => ExecuteResult::Trap(t)
+		     }
+		  } else { OkWb(isz,dst,rval) }
+	       },
+	    Err(t) => Trap(t)
+	  }
+	},
          _ => Trap(IllegalInstruction)
         }
    }
