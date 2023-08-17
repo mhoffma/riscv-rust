@@ -524,7 +524,7 @@ impl Sim {
        match rv {
          AluOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
             match op {
-                  Add  => OkWb(isz,dst,rs1 + rs2),
+                  Add  => OkWb(isz,dst,rs1.wrapping_add(rs2)),
                   Sll  => OkWb(isz,dst,rs1 << (rs2&0x1f)),
                   Slt  => OkWb(isz,dst,((rs1 as i32) < (rs2 as i32)) as u32),
                   Sltu => OkWb(isz,dst,(rs1 < rs2) as u32),
@@ -532,7 +532,7 @@ impl Sim {
                   Srl  => OkWb(isz,dst,rs1 >> (rs2 & 0x1F)),
                   Ior  => OkWb(isz,dst,rs1 | rs2),
                   And  => OkWb(isz,dst,rs1 & rs2),
-                  Sub  => OkWb(isz,dst,rs1 - rs2),
+                  Sub  => OkWb(isz,dst,rs1.wrapping_sub(rs2)),
                   Sra  => OkWb(isz,dst,((rs1 as i32) - (rs2 as i32)) as u32),
                   _ => Trap(IllegalInstruction)
             },
@@ -617,16 +617,18 @@ impl Sim {
                  },
                  _ => Trap(IllegalInstruction)           
            },    
-         BranchOperands(isz,op,rs1a,rs1,rs2a,rs2,imm,pc) =>
+         BranchOperands(isz,op,rs1a,rs1,rs2a,rs2,imm,pc) => {
+	   let ta = pc.overflowing_add(imm).0;
            match op {
-                 Beq => OkBr(isz,X0,0,rs1 == rs2, pc + imm),
-                 Bne => OkBr(isz,X0,0,rs1 != rs2, pc + imm),
-                 Blt => OkBr(isz,X0,0,(rs1 as i32) < (rs2 as i32), pc + imm),
-                 Bgt => OkBr(isz,X0,0,(rs1 as i32) > (rs2 as i32), pc + imm),
-                 Bltu => OkBr(isz,X0,0,rs1 < rs2, pc + imm),
-                 Bgeu => OkBr(isz,X0,0,rs1 > rs2, pc + imm),
+                 Beq => OkBr(isz,X0,0,rs1 == rs2, ta),
+                 Bne => OkBr(isz,X0,0,rs1 != rs2, ta),
+                 Blt => OkBr(isz,X0,0,(rs1 as i32) < (rs2 as i32), ta),
+                 Bgt => OkBr(isz,X0,0,(rs1 as i32) > (rs2 as i32), ta),
+                 Bltu => OkBr(isz,X0,0,rs1 < rs2, ta),
+                 Bgeu => OkBr(isz,X0,0,rs1 > rs2, ta),
                  _ => Trap(IllegalInstruction)           
-           },
+           }
+	},
            
         JumpOperands(isz,dst,raddr,pc) =>
            OkBr(isz,dst,pc+(isz as u32),true,pc.overflowing_add(raddr).0),
@@ -864,7 +866,7 @@ fn main() {
      loop {
         if args.bp != 0 && args.bp == s.arch.pc
            { trace=true}
-        match s.functional_step(true) {
+        match s.functional_step(false) {
           Ok(x) =>   if trace {println!("{:?}",s.arch) }
           Err(t) => {
 	  	 println!("{:?}",s.arch);
