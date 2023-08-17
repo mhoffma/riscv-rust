@@ -134,6 +134,11 @@ impl Into<usize> for Regno {
     }
 }
 
+fenum!{Regabi = { Zero, Ra, Sp, Gp, Tp, T0, T1, T2,
+        Fp, S1, A0, A1, A2, A3, A4, A5,
+        A6, A7, S2, S3, S4, S5, S6, S7,
+        S8, S9, S10, S11, T3, T4, T5, T6 } }
+
 fenum!{ BranchOp = { Beq:0, Bne:1,Blt:4,Bgt:5,Bltu:6,Bgeu:7 } }
 
 fenum!{ LoadOp = { Lb, Lh, Lw, Lbu, Lhu } }
@@ -336,6 +341,11 @@ impl ArchState {
      println!("external_writecsr({} : {:08x})",csrno,val)
   }
 
+  fn print(self) {
+     for i in 0..31 {
+        println!("{:?} {:08x} {:?}",Regno::from(i), self.regs[i as usize],Regabi::from(i))
+     }
+  }
 }
 
 struct Sim {
@@ -412,6 +422,8 @@ impl Sim {
           }
        }
      }
+     fn external_load_data(&self, ea :u32) -> u32 {0}
+     fn external_store_data(&mut self, ea :u32, value: u32) {}     
      
      fn load_instruction(&self, ea: u32) -> Result<u32,TrapKind> {
        use TrapKind::*;
@@ -422,6 +434,9 @@ impl Sim {
      
      fn load_data(&self, ea :u32, sz : u32, signed : bool) -> Result<u32,TrapKind> {
        use TrapKind::*;     
+       if ea >= 0x10000000 && ea < 0x12000000 {
+           Ok(self.external_load_data(ea))
+       } else {
        self.translate_addr(ea,sz-1,LoadDataFault,LoadDataFault).and_then(|a| {
            match sz {
              1 => {
@@ -439,16 +454,19 @@ impl Sim {
                     Ok(u32::from_le_bytes(input.try_into().unwrap()))
                   },
              _ => Err(LoadDataFault)
-           } })
+           } })}
      }
-
      fn store_data(&mut self, ea :u32, sz : u32, value: u32) -> Result<(),TrapKind> {
        use TrapKind::*;
+       if ea >= 0x10000000 && ea < 0x12000000 {
+           self.external_store_data(ea,value);          
+           Ok(())       
+       } else {
        self.translate_addr(ea,sz-1,AMOmissalignedFault,StoreAMOPageFault).and_then(|a| {
            let v = u32::to_le_bytes(value);
 	         self.mem[a..a+v.len()].copy_from_slice(&v);
            Ok(())
-       })
+       })}
      }
 
      fn decode(&self, ir : u32) -> RiscvOpImac {
@@ -707,6 +725,7 @@ impl Sim {
      }
    }
 
+
    fn functional_step (&mut self,trace:bool) -> Result<u32,TrapKind> {
       use WriteBackResult::*;
       let pc = self.arch.pc;
@@ -846,8 +865,13 @@ fn main() {
         if args.bp != 0 && args.bp == s.arch.pc
            { trace=true}
         match s.functional_step(true) {
-          Err(t) => { println!("{:?}",s.arch); println!("{:?}", t); break; }
           Ok(x) =>   if trace {println!("{:?}",s.arch) }
+          Err(t) => {
+	  	 println!("{:?}",s.arch);
+		 s.arch.print();
+		 println!("{:?}", t);
+		 break;
+          }
         }
      }
 }
