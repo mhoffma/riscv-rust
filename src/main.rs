@@ -359,7 +359,7 @@ enum TrapKind {
   TimerInterrupt = 0x80000007,
   None
 }
-
+#[derive(Debug)]
 enum ReadResult {
   // isz,op, dst, rs1a, rs1, rs2a, rs2
   AluOperands(u8,AluOp,Regno,Regno,u32,Regno,u32),
@@ -443,9 +443,7 @@ impl Sim {
        use TrapKind::*;
        self.translate_addr(ea,sz-1,AMOmissalignedFault,StoreAMOPageFault).and_then(|a| {
            let v = u32::to_le_bytes(value);
-           for i in (0..(sz as usize)) {
-              self.mem[a+i] = v[i]
-           };
+	         self.mem[a..a+v.len()].copy_from_slice(&v);
            Ok(())
        })
      }
@@ -714,8 +712,8 @@ impl Sim {
       let dstage  = self.decode(ir);
       if trace { println!("{:08x}: {:08x} {:?}",pc,ir,dstage); }
       let rstage  = self.readoperands(dstage, pc);
+      if trace { println!("{:08x}: {:08x} {:?}",pc,ir,rstage); }     
       let estage  = self.execute(rstage);
-      
       let mut branch = false;
       let mut trap   : TrapKind  = TrapKind::None;
       let mut sz     : u32 = 0;
