@@ -207,7 +207,7 @@ impl RiscvOpImac {
           "uuuuuuu uuuuu uuuuu uuu ddddd 00011 11" => Fencei(4),
           "iiiiiii bbbbb aaaaa fff iiiii 11000 11" => Branch(4,f.into(),a.into(),b.into(),imm!(i; sx[12:12 10:5 4:1 11:11])),
           "iiiiiii iiiii aaaaa fff ddddd 00000 11" => Load(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
-          "iiiiiii iiiii aaaaa fff ddddd 01000 11" => Store(4,f.into(),d.into(),a.into(), imm!(i;[11:0])),
+          "iiiiiii bbbbb aaaaa fff iiiii 01000 11" => Store(4,f.into(),a.into(),b.into(), imm!(i;[11:5 4:0])),
           "ifiiiii iiiii aaaaa fff ddddd 00100 11" => AluI(4,f.into(),d.into(),a.into(),  imm!(i;[11:0])),
           "iiiiiii iiiii 00000 000 00000 11100 11" => Sys(4,                              imm!(i;[11:0])),
           "iiiiiii iiiii aaaaa fff ddddd 11100 11" => Csr(4,f.into(),d.into(),a.into(),   imm!(i;[11:0])),
@@ -241,7 +241,7 @@ impl RiscvOpImac {
           "100 1 ddddd aa aaa 10"  => Alu(2,Add,d.into(),d.into(),a.into()),                         //   Add(Regno,Regno),
           "100 0 ddddd aa aaa 10"  => Alu(2,Add,d.into(),a.into(),X0),                               //   Mv(Regno,Regno),
           "010 i ddddd ii iii 10"  => Load(2,Lw,d.into(),X2,imm!(i; uimm[5:5 4:2 7:6])),             //   Ldwsp(Regno,u32),
-          "110 i iiiii aa aaa 10"  => Store(2,Sw,a.into(),X2,imm!(i; uimm[5:2 7:6])),                //   Swsp(Regno,u32),
+          "110 i iiiii aa aaa 10"  => Store(2,Sw,X2,a.into(),imm!(i; uimm[5:2 7:6])),                //   Swsp(Regno,u32),
 
            _ => RiscvOpImac::None
       }
@@ -458,30 +458,32 @@ impl Sim {
        use RiscvOpImac::*;
        use ReadResult::*;
        match opcode {
+         Lui(isz,dst,imm) =>
+           AluOperands(isz,AluOp::Add,dst,Regno::X0, imm, Regno::X0, 0),
          Auipc(isz,dst,imm) =>
-           AluOperands(isz,AluOp::Add,dst,Regno::X0,pc,Regno::X0,imm),	 
+           AluOperands(isz,AluOp::Add,dst,Regno::X0,pc,Regno::X0,imm),   
          Alu(isz,op,dst,rs1,rs2) => 
            AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
          AluI(isz,op,dst,rs1,imm) => 
            AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],Regno::X0,imm),
          Csr(isz,op,dst,rs1,csrno) => 
            CsrOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],csrno,self.arch.readcsr(csrno)),
-	 Sys(isz,csrno) =>
-	   SysOperands(isz,csrno),
+         Sys(isz,csrno) =>
+           SysOperands(isz,csrno),
          Mult(isz,op,dst,rs1,rs2) => 
            MulOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
          Load(isz,op,dst,rs1,imm) =>
            LoadOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],imm),        
-         Store(isz,op,src,rs1,imm) =>
-           StoreOperands(isz,op,src,self.arch.regs[src as usize],rs1,self.arch.regs[rs1 as usize],imm),
+         Store(isz,op,rs1,src,imm) =>
+           StoreOperands(isz,op,rs1,self.arch.regs[rs1 as usize],src,self.arch.regs[src as usize],imm),
          Branch(isz,op,rs1,rs2,imm) =>
            BranchOperands(isz,op,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize],imm,pc),
          Jal(isz,dst,imm) =>
            JumpOperands(isz,dst,imm,pc),
          Jalr(isz,dst,rs1,imm) =>
            JalrOperands(isz,dst,rs1,self.arch.regs[rs1 as usize],imm,pc),
-	 Amo(isz,op,dst,rs1,rs2,q,l) =>
-	   AmoOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
+         Amo(isz,op,dst,rs1,rs2,q,l) =>
+           AmoOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
          _ => ReadResult::None
        }
      }
@@ -580,7 +582,7 @@ impl Sim {
                  },
                  _ => Trap(IllegalInstruction)
            },
-         StoreOperands(isz,op,srca,src,rs1a,rs1,imm) =>
+         StoreOperands(isz,op,rs1a,rs1,srca,src,imm) =>
            match op {
                  Sb  => match self.store_data(rs1+imm,1,src) {
                            Ok(res) => OkWb(isz,X0,0),
@@ -608,7 +610,7 @@ impl Sim {
            },
            
         JumpOperands(isz,dst,raddr,pc) =>
-           OkBr(isz,dst,pc+(isz as u32),true,pc+raddr),
+           OkBr(isz,dst,pc+(isz as u32),true,pc.overflowing_add(raddr).0),
            
         JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
            let nextpc = rs1+raddr;
@@ -626,58 +628,58 @@ impl Sim {
               _ => Trap(IllegalInstruction)
         },
         SysOperands(isz,csrno) => {
-	   match csrno {
-	     0x105 => { //self.arch.wfi()
-	                self.arch.mstatus    = self.arch.mstatus | 8;
-			self.arch.extraflags = self.arch.extraflags | 4;
-			Wfi(isz)
-	     },
-	     2     => { // self.arch.mret()
+           match csrno {
+             0x105 => { //self.arch.wfi()
+                        self.arch.mstatus    = self.arch.mstatus | 8;
+                        self.arch.extraflags = self.arch.extraflags | 4;
+                        Wfi(isz)
+             },
+             2     => { // self.arch.mret()
                         //https://raw.githubusercontent.com/riscv/virtual-memory/main/specs/663-Svpbmt.pdf
                         //Table 7.6. MRET then in mstatus/mstatush sets MPV=0, MPP=0, MIE=MPIE, and MPIE=1. La
                         // Should also update mstatus to reflect correct mode.
                         let mstatus    = self.arch.mstatus;
-			let extraflags = self.arch.extraflags;
-			self.arch.mstatus = (( mstatus & 0x80) >> 4) | ((extraflags&3) << 11) | 0x80;
-			self.arch.extraflags = (extraflags & !3) | ((mstatus >> 11) & 3) ;
-			OkBr(isz,X0,0,true,self.arch.mepc)
-	     },
-	     0     => Trap(if (self.arch.extraflags&3)!=0 { EnvCallM } else { EnvCallU }),
-	     1     => Trap(Breakpoint),
+                        let extraflags = self.arch.extraflags;
+                        self.arch.mstatus = (( mstatus & 0x80) >> 4) | ((extraflags&3) << 11) | 0x80;
+                        self.arch.extraflags = (extraflags & !3) | ((mstatus >> 11) & 3) ;
+                        OkBr(isz,X0,0,true,self.arch.mepc)
+             },
+             0     => Trap(if (self.arch.extraflags&3)!=0 { EnvCallM } else { EnvCallU }),
+             1     => Trap(Breakpoint),
              _     => OkNoop(isz)
-	   }
+           }
         },
-	AmoOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) => {
-	  match self.load_data(rs1,4,false) {
-            Ok(mut rval) => {	   
-		  let mut dowrite = true;
-		  let mut output  = rs2;
-		  let mut illegal = false;
-		  match op {
-		     Lrw => { self.arch.extraflags = (self.arch.extraflags & 7) | (rs1<<3); dowrite=false;  }
-		     Scw => { rval = ((self.arch.extraflags >> 3) != (rs1 & 0x1fff_ffff)) as u32;    dowrite=rval==0; } // reservation slot
-		     Amoswapw  => { },
-		     Amoaddw   => { output = rs2 + rval; },
-		     Amoxorw   => { output = rs2 ^ rval; },
-		     Amoandw   => { output = rs2 & rval; },
-		     Amoorw    => { output = rs2 | rval; },
-		     Amominw   => { output = if (rs2 as i32) < (rval as i32) { rs2 } else { rval } },
-		     Amomaxw   => { output = if (rs2 as i32) > (rval as i32) { rs2 } else { rval } },
-		     Amominuw  => { output = if rs2 < rval { rs2 } else { rval } },
-		     Amomaxuw  => { output = if rs2 > rval { rs2 } else { rval } },
-		     _         => { illegal = true }
-		  }
-		  if illegal { Trap(IllegalInstruction) }
-		  else if dowrite {
-		     match self.store_data(rs1,4,output) {
-			 Ok(res) => OkWb(isz,dst,rval),
-			 Err(t)  => ExecuteResult::Trap(t)
-		     }
-		  } else { OkWb(isz,dst,rval) }
-	       },
-	    Err(t) => Trap(t)
-	  }
-	},
+        AmoOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) => {
+          match self.load_data(rs1,4,false) {
+            Ok(mut rval) => {      
+                  let mut dowrite = true;
+                  let mut output  = rs2;
+                  let mut illegal = false;
+                  match op {
+                     Lrw => { self.arch.extraflags = (self.arch.extraflags & 7) | (rs1<<3); dowrite=false;  }
+                     Scw => { rval = ((self.arch.extraflags >> 3) != (rs1 & 0x1fff_ffff)) as u32;    dowrite=rval==0; } // reservation slot
+                     Amoswapw  => { },
+                     Amoaddw   => { output = rs2 + rval; },
+                     Amoxorw   => { output = rs2 ^ rval; },
+                     Amoandw   => { output = rs2 & rval; },
+                     Amoorw    => { output = rs2 | rval; },
+                     Amominw   => { output = if (rs2 as i32) < (rval as i32) { rs2 } else { rval } },
+                     Amomaxw   => { output = if (rs2 as i32) > (rval as i32) { rs2 } else { rval } },
+                     Amominuw  => { output = if rs2 < rval { rs2 } else { rval } },
+                     Amomaxuw  => { output = if rs2 > rval { rs2 } else { rval } },
+                     _         => { illegal = true }
+                  }
+                  if illegal { Trap(IllegalInstruction) }
+                  else if dowrite {
+                     match self.store_data(rs1,4,output) {
+                         Ok(res) => OkWb(isz,dst,rval),
+                         Err(t)  => ExecuteResult::Trap(t)
+                     }
+                  } else { OkWb(isz,dst,rval) }
+               },
+            Err(t) => Trap(t)
+          }
+        },
          _ => Trap(IllegalInstruction)
         }
    }
@@ -721,10 +723,10 @@ impl Sim {
 
       match self.writeback(estage) {
          OK(isz)                 => { sz=isz },
-	 Wfi(isz)                => { sz=isz },
+         Wfi(isz)                => { sz=isz },
          OkBr(isz,taken,newaddr) => { sz=isz; branch=taken; nextpc=newaddr },
          Trap(kind) => {
-	    return Err(kind);
+            return Err(kind);
          },
       };
       self.arch.pc = if branch { nextpc } else { pc + sz };
@@ -743,8 +745,8 @@ macro_rules! check {
          let mut n = $note.split("//");
          match n.next() {
            Some(t) =>
-	      if $test { assert_eq!(sres,strip(t.to_string())) }
-	      else { println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note) },
+              if $test { assert_eq!(sres,strip(t.to_string())) }
+              else { println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note) },
            None => {}
          }
         }
@@ -758,6 +760,7 @@ fn f1() {
    assert_eq!(c,true);
    check! { c ;
      0x80000537 => "Lui(4,X10,2147483648)" ;
+     0x0091_2223 => "Store(4,Sw,X2,X9,4) // 000003e:	00912223          	sw	s1,4(sp);";
      0xfe079ce3 => "Branch(4,Bne, X15, X0, 4294967288)" ;
      0xff872683 => "Load(4,Lw, X13, X14, 4088)" ;
      0x00f72023 => "Store(4,Sw, X0, X14, 15)" ;
@@ -811,6 +814,12 @@ fn f2() {
 }
 
 fn main() {
+     if false {
+       check!{ false ; 
+         0x0091_2223 => "000003e:	00912223          	sw	s1,4(sp);"
+       }
+       return;
+     }
      let mut s = Sim{
         arch: ArchState::reset(),
         base: 0x8000_0000,
@@ -824,8 +833,8 @@ fn main() {
 
      loop {
         match s.functional_step(true) {
-	  Err(t) => { println!("{:?}", t); break; }
-	  Ok(x) =>   println!("{:?}",s.arch)
-	}
+          Err(t) => { println!("{:?}", t); break; }
+          Ok(x) =>   println!("{:?}",s.arch)
+        }
      }
 }
