@@ -614,8 +614,8 @@ impl Sim {
            
         JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
            let nextpc = rs1+raddr;
-           if self.alignment_mask == 0 { OkBr(isz,dst,pc+(isz as u32),true,nextpc) }
-           else                        { Trap(IllegalInstruction) }
+           if (nextpc & self.alignment_mask) == 0 { OkBr(isz,dst,pc+(isz as u32),true,nextpc) }
+           else                                   { Trap(IllegalInstruction) }
         },
         CsrOperands(isz,op,dst,rs1a,rs1,csrno,csrval) => 
            match op {
