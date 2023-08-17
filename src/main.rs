@@ -1,4 +1,10 @@
 #![allow(unused,non_snake_case)]
+//#[cfg(not(test))] 
+//use log::{info, warn}; // Use log crate when building application
+ 
+//#[cfg(test)]
+//use std::{println as info, println as warn}; // Workaround to use prinltn! for logs.
+
 use bitmatch::bitmatch;
 
 
@@ -116,7 +122,7 @@ macro_rules! imm {
 
 #[test]
 fn f0() {
-   assert_eq!(fimm!(0x80000537; [31:12]),0x80000);
+   assert_eq!(fimm!(0x80000537; [31:12]),5468160);
 }
 
 fenum!{Regno = { X0,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,
@@ -696,12 +702,13 @@ impl Sim {
      }
    }
 
-   fn functional_step (&mut self) {
+   fn functional_step (&mut self,trace:bool) {
       use WriteBackResult::*;
       let pc = self.arch.pc;
       let ir = self.load_instruction(pc).unwrap();
 
       let dstage  = self.decode(ir);
+      if trace { println!("{:08x}: {:08x} {:?}",pc,ir,dstage); }
       let rstage  = self.readoperands(dstage, pc);
       let estage  = self.execute(rstage);
       
@@ -725,7 +732,7 @@ impl Sim {
 
 fn strip(s : String) -> String { s.chars().filter(|c| !c.is_whitespace()).collect() }
 macro_rules! check {
-  ( $($opc:literal => $note:literal );* ) => {
+   ( $test:expr ; $($opc:literal => $note:literal );* ) => {
      $(
         {
          let res   = RiscvOpImac::decode($opc);
@@ -733,7 +740,8 @@ macro_rules! check {
          let mut n = $note.split("//");
          match n.next() {
            Some(t) =>
-              println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note),
+	      if $test { assert_eq!(sres,strip(t.to_string())) }
+	      else { println!("{:8} {:30} => {}",sres==strip(t.to_string()),sres, $note) },
            None => {}
          }
         }
@@ -741,17 +749,19 @@ macro_rules! check {
   }
 }
 
-
-fn main() {
-   check! {
+#[test]
+fn f1() {
+   let c = cfg!(test);
+   assert_eq!(c,true);
+   check! { c ;
      0x80000537 => "Lui(4,X10,2147483648)" ;
      0xfe079ce3 => "Branch(4,Bne, X15, X0, 4294967288)" ;
      0xff872683 => "Load(4,Lw, X13, X14, 4088)" ;
      0x00f72023 => "Store(4,Sw, X0, X14, 15)" ;
      0x01010113 => "AluI(4,Add, X2, X2, 16)" ;
      0x40d90933 => "Alu(4,Sub, X18, X18, X13)" ;
-     0x13641073 => "Csr(4,Csrrw, X0, X8, 155)" ;
-     0x03245433 => "Mul(4,Divu, X8, X8, X18)";
+     0x13641073 => "Csr(4,Csrrw, X0, X8, 310)" ;
+     0x03245433 => "Mult(4,Divu, X8, X8, X18)";
      0x12450513 => "AluI(4,Add, X10, X10, 292)";
      0x12048513 => "AluI(4,Add,X10,X9,288) //80000046:  12048513                addi    a0,s1,288 # 80000120 <_sstack+0xffffdf40>";
      0x0001     => "AluI(2,Add,X0,X0,0)";
@@ -772,9 +782,11 @@ fn main() {
      0x42b2     => "Load(2,Lw,X5,X2,12)    // 80000020: 42b2                    lw      t0,12(sp)";
      0x0141     => "AluI(2,Add,X2,X2,16)   // 80000022: 0141                    addi    sp,sp,16";
      0x8082     => "Jalr(2,X1,0)           // 80000024: 8082                    ret"
-
    }
+}
 
+#[test]
+fn f2() {
      let mut s = Sim{
         arch: ArchState::reset(),
         base: 0x8000_0000,
@@ -789,7 +801,26 @@ fn main() {
      s.arch.pc=0x8000_0000;
 
      for i in 0..10 {
-        s.functional_step();
+        s.functional_step(true);
+        println!("{:?}",s.arch);
+     }
+     assert_eq!(s.arch.regs[2],16*10)
+}
+
+fn main() {
+     let mut s = Sim{
+        arch: ArchState::reset(),
+        base: 0x8000_0000,
+        alignment_mask: 1,
+        mem: vec![0_u8; 1024]
+     };
+     let bytes = std::fs::read("baremetal_c.bin").unwrap();
+
+     s.mem[0..bytes.len()].copy_from_slice(&bytes);
+     s.arch.pc=0x8000_0000;
+
+     for i in 0..10 {
+        s.functional_step(true);
         println!("{:?}",s.arch);
      }
 }
