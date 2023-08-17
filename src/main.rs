@@ -4,7 +4,7 @@
  
 //#[cfg(test)]
 //use std::{println as info, println as warn}; // Workaround to use prinltn! for logs.
-
+use clap::Parser;
 use bitmatch::bitmatch;
 
 
@@ -330,9 +330,12 @@ impl ArchState {
     }
   }
   // need to make these call functions either lambdas or via inherit
+  fn get_cycle(self) -> u32 { 0 }  
   fn external_readcsr(self,csrno:u32) -> u32 { 0 }
-  fn external_writecsr(self,csrno:u32,val:u32) {}
-  fn get_cycle(self) -> u32 { 0 }
+  fn external_writecsr(self,csrno:u32,val:u32) {
+     println!("external_writecsr({} : {:08x})",csrno,val)
+  }
+
 }
 
 struct Sim {
@@ -617,7 +620,7 @@ impl Sim {
         },
         CsrOperands(isz,op,dst,rs1a,rs1,csrno,csrval) => 
            match op {
-              Csrrw  => OkCsr(isz,dst,csrval,csrno, csrval),
+              Csrrw  => OkCsr(isz,dst,csrval,csrno, rs1),
               Csrrs  => OkCsr(isz,dst,csrval,csrno, csrval | rs1),
               Csrrc  => OkCsr(isz,dst,csrval,csrno, csrval & !rs1),
               Csrrwi => OkCsr(isz,dst,csrval,csrno, rs1a as u32),
@@ -811,7 +814,17 @@ fn f2() {
      assert_eq!(s.arch.regs[2],16*10)
 }
 
+#[derive(Parser,Debug)]
+struct ProgramArgs {
+  #[arg(short, long, default_value_t = String::from("baremetal_c.bin"))]
+  fname : String,
+  #[arg(long, default_value_t = 0)]
+  bp   : u32
+}
+
 fn main() {
+  let args = ProgramArgs::parse();
+  let mut trace = false;
      if false {
        check!{ false ; 
          0x0091_2223 => "000003e:	00912223          	sw	s1,4(sp);"
@@ -824,15 +837,17 @@ fn main() {
         alignment_mask: 1,
         mem: vec![0_u8; 1<<20]
      };
-     let bytes = std::fs::read("baremetal_c.bin").unwrap();
+     let bytes = std::fs::read(args.fname).unwrap();
 
      s.mem[0..bytes.len()].copy_from_slice(&bytes);
      s.arch.pc=0x8000_0000;
 
      loop {
+        if args.bp != 0 && args.bp == s.arch.pc
+           { trace=true}
         match s.functional_step(true) {
           Err(t) => { println!("{:?}", t); break; }
-          Ok(x) =>   println!("{:?}",s.arch)
+          Ok(x) =>   if trace {println!("{:?}",s.arch) }
         }
      }
 }
