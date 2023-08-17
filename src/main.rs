@@ -385,7 +385,7 @@ enum ExecuteResult {
 
 
 enum WriteBackResult {
-  Ok(u32),
+  OK(u32),
   OkBr(u32,bool,u32),
   Wfi(u32),  
   Trap(TrapKind)
@@ -458,6 +458,8 @@ impl Sim {
        use RiscvOpImac::*;
        use ReadResult::*;
        match opcode {
+         Auipc(isz,dst,imm) =>
+           AluOperands(isz,AluOp::Add,dst,Regno::X0,pc,Regno::X0,imm),	 
          Alu(isz,op,dst,rs1,rs2) => 
            AluOperands(isz,op,dst,rs1,self.arch.regs[rs1 as usize],rs2,self.arch.regs[rs2 as usize]),
          AluI(isz,op,dst,rs1,imm) => 
@@ -685,7 +687,7 @@ impl Sim {
      match wb {
        OkWb(isz,dst,rval) => {
            self.arch.regs[dst as usize] = rval;
-           WriteBackResult::Ok(isz as u32)
+           WriteBackResult::OK(isz as u32)
        },
        OkBr(isz,dst,rval,taken,nextpc) => {
            self.arch.regs[dst as usize] = rval;
@@ -694,15 +696,15 @@ impl Sim {
        OkCsr(isz,dst,rval,csrno, csrval) => {
            self.arch.regs[dst as usize] = rval;
            self.arch.writecsr(csrno,csrval);
-           WriteBackResult::Ok(isz as u32)
+           WriteBackResult::OK(isz as u32)
        },
-       OkNoop(isz) => WriteBackResult::Ok(isz as u32),
-       Wfi(isz)    => WriteBackResult::Ok(isz as u32),
+       OkNoop(isz) => WriteBackResult::OK(isz as u32),
+       Wfi(isz)    => WriteBackResult::OK(isz as u32),
        ExecuteResult::Trap(t) => WriteBackResult::Trap(t)
      }
    }
 
-   fn functional_step (&mut self,trace:bool) {
+   fn functional_step (&mut self,trace:bool) -> Result<u32,TrapKind> {
       use WriteBackResult::*;
       let pc = self.arch.pc;
       let ir = self.load_instruction(pc).unwrap();
@@ -718,14 +720,15 @@ impl Sim {
       let mut nextpc : u32 = 0;
 
       match self.writeback(estage) {
-         Ok(isz)                 => { sz=isz },
+         OK(isz)                 => { sz=isz },
 	 Wfi(isz)                => { sz=isz },
          OkBr(isz,taken,newaddr) => { sz=isz; branch=taken; nextpc=newaddr },
          Trap(kind) => {
-            println!("{:?}",kind)
+	    return Err(kind);
          },
       };
-      self.arch.pc = if branch { nextpc } else { pc + sz }
+      self.arch.pc = if branch { nextpc } else { pc + sz };
+      Ok(0)
    }
 }
 
@@ -801,7 +804,7 @@ fn f2() {
      s.arch.pc=0x8000_0000;
 
      for i in 0..10 {
-        s.functional_step(true);
+        s.functional_step(true)?;
         println!("{:?}",s.arch);
      }
      assert_eq!(s.arch.regs[2],16*10)
@@ -812,15 +815,17 @@ fn main() {
         arch: ArchState::reset(),
         base: 0x8000_0000,
         alignment_mask: 1,
-        mem: vec![0_u8; 1024]
+        mem: vec![0_u8; 1<<20]
      };
      let bytes = std::fs::read("baremetal_c.bin").unwrap();
 
      s.mem[0..bytes.len()].copy_from_slice(&bytes);
      s.arch.pc=0x8000_0000;
 
-     for i in 0..10 {
-        s.functional_step(true);
-        println!("{:?}",s.arch);
+     loop {
+        match s.functional_step(true) {
+	  Err(t) => { println!("{:?}", t); break; }
+	  Ok(x) =>   println!("{:?}",s.arch)
+	}
      }
 }
