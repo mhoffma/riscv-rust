@@ -219,7 +219,7 @@ impl RiscvOpImac {
           "010 i iiaaa ii ddd 00"  => Load(2,Lw,(d+8).into(),(a+8).into(),imm!(i;uimm[5:3 2:2 6:6])),//   Ldw(Regno8,u32),
           "000 0 00000 00 000 01"  => AluI(2,Add,X0,X0,0),                                           //   Addi(Regno,u32),
           "000 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i;nzimm[5:5 4:0])),          //   Nop,
-          "001 i iiiii ii iii 01"  => Jal(2,X0,imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),     //   Jal(u32),
+          "001 i iiiii ii iii 01"  => Jal(2,X1,imm!(i;sx[11:11 4:4 9:8 10:10 6:6 7:7 3:1 5:5])),     //   Jal(u32),
           "001 i ddddd ii iii 01"  => AluI(2,Add,d.into(),d.into(),imm!(i; sx[5:5 4:0])),            //   Addiw(Regno,u32),
           "010 i ddddd ii iii 01"  => Lui(2,d.into(),imm!(i; nzimm[4:4 6:6 8:7 5:5])),               //   Li(Regno,u32),
           "011 i 00010 ii iii 01"  => AluI(2,Add,X2,X2,imm!(i;nzimm[4:4 6:6 8:7 5:5])),              //   Addi16sp(u32),
@@ -846,7 +846,7 @@ fn main() {
         if args.bp != 0 && args.bp == s.arch.pc
            { trace=true}
         match s.functional_step(true) {
-          Err(t) => { println!("{:?}", t); break; }
+          Err(t) => { println!("{:?}",s.arch); println!("{:?}", t); break; }
           Ok(x) =>   if trace {println!("{:?}",s.arch) }
         }
      }
