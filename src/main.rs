@@ -538,7 +538,7 @@ impl Sim {
             },
          MulOperands(isz,op,dst,rs1a,rs1,rs2a,rs2) =>
             match op {
-                  Mul  => OkWb(isz,dst,rs1 * rs2),
+                  Mul  => OkWb(isz,dst,rs1.wrapping_mul(rs2)),
                   Mulh  => OkWb(isz,dst,{
                      let a = i64::from(rs1 as i32);
                      let b = i64::from(rs2 as i32);
@@ -618,7 +618,7 @@ impl Sim {
                  _ => Trap(IllegalInstruction)           
            },    
          BranchOperands(isz,op,rs1a,rs1,rs2a,rs2,imm,pc) => {
-	   let ta = pc.overflowing_add(imm).0;
+	   let ta = pc.wrapping_add(imm);
            match op {
                  Beq => OkBr(isz,X0,0,rs1 == rs2, ta),
                  Bne => OkBr(isz,X0,0,rs1 != rs2, ta),
@@ -631,7 +631,7 @@ impl Sim {
 	},
            
         JumpOperands(isz,dst,raddr,pc) =>
-           OkBr(isz,dst,pc+(isz as u32),true,pc.overflowing_add(raddr).0),
+           OkBr(isz,dst,pc+(isz as u32),true,pc.wrapping_add(raddr)),
            
         JalrOperands(isz,dst,rs1a,rs1,raddr,pc) => {
            let nextpc = rs1+raddr;
@@ -840,12 +840,14 @@ struct ProgramArgs {
   #[arg(short, long, default_value_t = String::from("baremetal_c.bin"))]
   fname : String,
   #[arg(long, default_value_t = 0)]
-  bp   : u32
+  bp   : u32,
+  #[arg(short, default_value_t = false)]
+  trace:bool
 }
 
 fn main() {
   let args = ProgramArgs::parse();
-  let mut trace = false;
+  let mut trace = args.trace;
      if false {
        check!{ false ; 
          0x0091_2223 => "000003e:	00912223          	sw	s1,4(sp);"
